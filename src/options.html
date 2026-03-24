@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Singularity Katana Settings</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="settings-shell">
+      <section class="settings-card">
+        <p class="eyebrow">Singularity Katana Panel</p>
+        <h1>Credential Settings</h1>
+        <p class="copy">
+          Stored API keys remain hidden. Enter a replacement pair below to verify and rotate the active credentials.
+        </p>
+        <form id="settings-form">
+          <label>
+            <span>New public key</span>
+            <input type="password" name="publicKey" autocomplete="off" required />
+          </label>
+          <label>
+            <span>New secret key</span>
+            <input type="password" name="secretKey" autocomplete="off" required />
+          </label>
+          <div class="actions">
+            <button type="submit">Verify & Replace</button>
+            <button type="button" class="secondary" id="clear-credentials">Clear Stored Keys</button>
+          </div>
+        </form>
+        <p class="status" id="settings-status">No status yet.</p>
+      </section>
+      <script type="module" src="./options.js"></script>
+    </main>
+  </body>
+</html>

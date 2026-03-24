@@ -1,0 +1,208 @@
+#singularity-katana-panel-host {
+  position: fixed;
+  top: 88px;
+  right: 24px;
+  z-index: 2147483647;
+  width: min(360px, calc(100vw - 32px));
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+#singularity-katana-panel-root {
+  color: #10263f;
+  pointer-events: auto;
+}
+
+#singularity-katana-panel-root .skp-shell {
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.95), rgba(229, 238, 246, 0.98)),
+    linear-gradient(180deg, #f7fbff 0%, #e2edf6 100%);
+  border: 1px solid rgba(16, 38, 63, 0.12);
+  border-radius: 20px;
+  box-shadow: 0 22px 60px rgba(16, 38, 63, 0.18);
+  padding: 18px;
+  backdrop-filter: blur(14px);
+}
+
+#singularity-katana-panel-root .skp-header,
+#singularity-katana-panel-root .skp-status-row,
+#singularity-katana-panel-root .skp-form,
+#singularity-katana-panel-root label,
+#singularity-katana-panel-root .skp-detail-card dl {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#singularity-katana-panel-root .skp-header,
+#singularity-katana-panel-root .skp-status-row {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+#singularity-katana-panel-root .skp-header {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+#singularity-katana-panel-root .skp-shell.skp-dragging,
+#singularity-katana-panel-root .skp-shell.skp-dragging .skp-header {
+  cursor: grabbing;
+}
+
+#singularity-katana-panel-root .skp-eyebrow {
+  margin: 0 0 4px;
+  color: #527391;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+#singularity-katana-panel-root h2,
+#singularity-katana-panel-root h3,
+#singularity-katana-panel-root p {
+  margin: 0;
+}
+
+#singularity-katana-panel-root .skp-inline-link {
+  color: #0e5ea8;
+  text-decoration: none;
+}
+
+#singularity-katana-panel-root .skp-inline-link:hover {
+  text-decoration: underline;
+}
+
+#singularity-katana-panel-root h2 {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+#singularity-katana-panel-root h3 {
+  font-size: 15px;
+}
+
+#singularity-katana-panel-root .skp-copy,
+#singularity-katana-panel-root .skp-meta,
+#singularity-katana-panel-root dt,
+#singularity-katana-panel-root dd {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#singularity-katana-panel-root .skp-copy,
+#singularity-katana-panel-root .skp-meta,
+#singularity-katana-panel-root dt {
+  color: #5c738b;
+}
+
+#singularity-katana-panel-root .skp-form,
+#singularity-katana-panel-root .skp-detail-group {
+  margin-top: 16px;
+}
+
+#singularity-katana-panel-root label span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#singularity-katana-panel-root input {
+  border: 1px solid rgba(16, 38, 63, 0.12);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #10263f;
+}
+
+#singularity-katana-panel-root .skp-secret-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+#singularity-katana-panel-root .skp-reveal {
+  padding: 0 12px;
+  color: #13456e;
+  background: rgba(19, 69, 110, 0.08);
+  border: 1px solid rgba(19, 69, 110, 0.14);
+  white-space: nowrap;
+}
+
+#singularity-katana-panel-root button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+#singularity-katana-panel-root button:hover {
+  transform: translateY(-1px);
+}
+
+#singularity-katana-panel-root .skp-primary {
+  padding: 12px 16px;
+  color: white;
+  background: linear-gradient(135deg, #0e5ea8, #1c86d1);
+  box-shadow: 0 10px 24px rgba(28, 134, 209, 0.25);
+}
+
+#singularity-katana-panel-root .skp-ghost {
+  padding: 10px 14px;
+  color: #13456e;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(19, 69, 110, 0.14);
+}
+
+#singularity-katana-panel-root .skp-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+#singularity-katana-panel-root .skp-card,
+#singularity-katana-panel-root .skp-detail-card {
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(16, 38, 63, 0.08);
+  border-radius: 16px;
+}
+
+#singularity-katana-panel-root .skp-card-label {
+  color: #5c738b;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+#singularity-katana-panel-root strong {
+  font-size: 18px;
+}
+
+#singularity-katana-panel-root dl,
+#singularity-katana-panel-root dd {
+  margin: 0;
+}
+
+#singularity-katana-panel-root dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(16, 38, 63, 0.08);
+}
+
+#singularity-katana-panel-root dl div:last-child {
+  border-bottom: 0;
+}
+
+@media (max-width: 960px) {
+  #singularity-katana-panel-host {
+    top: auto;
+    right: 16px;
+    bottom: 16px;
+    width: min(380px, calc(100vw - 32px));
+  }
+}

@@ -1,0 +1,91 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(53, 142, 214, 0.18), transparent 32%),
+    linear-gradient(180deg, #eef5fb 0%, #dce8f4 100%);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: #10263f;
+}
+
+.settings-shell {
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+}
+
+.settings-card {
+  width: min(100%, 560px);
+  padding: 32px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 60px rgba(16, 38, 63, 0.14);
+}
+
+.eyebrow,
+.copy,
+.status,
+label span {
+  color: #5c738b;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+.copy {
+  margin-top: 12px;
+  line-height: 1.6;
+}
+
+form {
+  margin-top: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+}
+
+input {
+  border: 1px solid rgba(16, 38, 63, 0.12);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 700;
+  cursor: pointer;
+  color: white;
+  background: linear-gradient(135deg, #0e5ea8, #1c86d1);
+}
+
+button.secondary {
+  color: #13456e;
+  background: rgba(19, 69, 110, 0.08);
+}
+
+.status {
+  margin-top: 18px;
+  line-height: 1.5;
+}

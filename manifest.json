@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Singularity Katana Panel",
+  "description": "Injects a Singularity data panel into Katana sales order pages after API key verification.",
+  "version": "0.1.0",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://factory.katanamrp.com/salesorder/*",
+    "https://singularitysalesplatform.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://factory.katanamrp.com/salesorder/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "css": [
+        "src/panel.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Singularity Katana Panel"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "singularity-katana-panel@example.com"
+    }
+  }
+}
