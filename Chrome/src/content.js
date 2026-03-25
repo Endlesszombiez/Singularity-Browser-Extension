@@ -312,6 +312,11 @@ function setView(viewName) {
   elements.dashboardView.hidden = viewName !== "dashboard";
 }
 
+function showAuthView(message) {
+  elements.authStatus.textContent = message ?? "No verified key pair stored.";
+  setView("auth");
+}
+
 function showVerifiedSplash(verifiedAt, message) {
   lastVerifiedAt = verifiedAt ?? lastVerifiedAt;
   elements.verifiedMeta.textContent = lastVerifiedAt
@@ -387,8 +392,7 @@ async function loadPanelData({ preserveView = false } = {}) {
       return;
     }
 
-    setView("auth");
-    elements.authStatus.textContent = error.message;
+    showAuthView(error.message);
   }
 }
 
@@ -406,15 +410,12 @@ async function bootstrapPanel() {
 
   const authState = await sendRuntimeMessage({ action: "getAuthState" });
   lastVerifiedAt = authState.verifiedAt ?? null;
-  elements.authStatus.textContent = authState.isVerified
-    ? `Credentials previously verified on ${formatTimestamp(authState.verifiedAt)}.`
-    : "No verified key pair stored.";
 
   if (authState.isVerified) {
     showVerifiedSplash(authState.verifiedAt, "Loading customer and sales order data...");
     await loadPanelData({ preserveView: false });
   } else {
-    setView("auth");
+    showAuthView("No verified key pair stored.");
   }
 }
 

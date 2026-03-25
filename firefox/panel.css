@@ -101,8 +101,13 @@
   margin-top: 16px;
 }
 
+#singularity-katana-panel-root .skp-view[hidden] {
+  display: none !important;
+}
+
 #singularity-katana-panel-root .skp-verified-view {
-  align-items: flex-start;
+  align-items: center;
+  text-align: center;
 }
 
 #singularity-katana-panel-root .skp-logo {
@@ -116,6 +121,10 @@
   font-size: 18px;
   font-weight: 700;
   color: #1f2933;
+}
+
+#singularity-katana-panel-root .skp-verified-view .skp-danger {
+  align-self: center;
 }
 
 #singularity-katana-panel-root label span {
