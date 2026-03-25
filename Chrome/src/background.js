@@ -4,76 +4,6 @@ import { decryptJson, encryptJson, getOrCreateEncryptionKey } from "./crypto.js"
 const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
 const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storage.local;
 
-const CUSTOMER_FIELDS = [
-  "companyname",
-  "firstname",
-  "lastname",
-  "assignedto",
-  "email",
-  "phone",
-  "recordid",
-  "fullname",
-  "created_at",
-  "last_sales_date",
-  "discount_percent",
-  "tags",
-  "billing_line1",
-  "billing_line2",
-  "billing_line3",
-  "billing_line4",
-  "billing_city",
-  "billing_state",
-  "billing_postal_code",
-  "billing_country",
-  "shipping_line1",
-  "shipping_line2",
-  "shipping_line3",
-  "shipping_line4",
-  "shipping_city",
-  "shipping_state",
-  "shipping_postal_code",
-  "shipping_country"
-];
-
-const SALES_ORDER_FIELDS = [
-  "id",
-  "external_id",
-  "customer_email",
-  "status",
-  "total_cents",
-  "created_at",
-  "assigned_to",
-  "payment_due_date",
-  "updated_at",
-  "ship_method",
-  "tracking_number",
-  "customer_recordid",
-  "companyname",
-  "fullname",
-  "shipping_cost_cents",
-  "currency",
-  "class_name",
-  "order_terms",
-  "method_id",
-  "is_archived",
-  "billing_line1",
-  "billing_line2",
-  "billing_line3",
-  "billing_line4",
-  "billing_city",
-  "billing_state",
-  "billing_postal_code",
-  "billing_country",
-  "shipping_line1",
-  "shipping_line2",
-  "shipping_line3",
-  "shipping_line4",
-  "shipping_city",
-  "shipping_state",
-  "shipping_postal_code",
-  "shipping_country"
-];
-
 async function getStoredCredentials() {
   const keyMaterial = await getOrCreateEncryptionKey(storageApi, STORAGE_KEYS.encryptionKey);
   const stored = await storageApi.get([STORAGE_KEYS.credentials, STORAGE_KEYS.onboarding]);
@@ -183,32 +113,6 @@ async function fetchJson(url, options) {
   return payload;
 }
 
-function escapeSqlValue(value) {
-  return String(value ?? "").replace(/'/g, "''");
-}
-
-function buildEqualityClause(fieldName, value) {
-  return `${fieldName} = '${escapeSqlValue(value)}'`;
-}
-
-function buildScopedSelectQuery({ fields, whereClauses = [], orderBy = "", limit = 1 }) {
-  let query = `SELECT ${fields.join(", ")}`;
-
-  if (whereClauses.length) {
-    query += ` WHERE ${whereClauses.join(" OR ")}`;
-  }
-
-  if (orderBy) {
-    query += ` ORDER BY ${orderBy}`;
-  }
-
-  if (limit) {
-    query += ` LIMIT ${limit}`;
-  }
-
-  return query;
-}
-
 function buildUrlWithParams(baseUrl, params) {
   const url = new URL(baseUrl);
 
@@ -257,26 +161,9 @@ function normalizeQueryRows(payload) {
   return [];
 }
 
-async function fetchQueryRows(url, query, headers) {
-  try {
-    const payload = await fetchJson(url, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ query })
-    });
-
-    return normalizeQueryRows(payload);
-  } catch (error) {
-    if (![400, 404, 405, 415].includes(error.status ?? 0)) {
-      throw error;
-    }
-  }
-
+async function fetchFilteredRows(url, params, headers) {
   const payload = await fetchJson(
-    buildUrlWithParams(url, { query }),
+    buildUrlWithParams(url, params),
     {
       method: "GET",
       headers
@@ -368,70 +255,76 @@ function summarizeSalesOrder(order = {}) {
   };
 }
 
-function buildSalesOrderLookupQuery(salesOrderId, orderNumber) {
-  if (!salesOrderId && !orderNumber) {
-    throw new Error("No sales order identifier was found in the current page URL.");
-  }
-
-  const candidateTokens = [...new Set([salesOrderId, orderNumber].filter(Boolean))];
-  const whereClauses = candidateTokens.flatMap((token) => ([
-    buildEqualityClause("id", token),
-    buildEqualityClause("external_id", token)
-  ]));
-
-  return buildScopedSelectQuery({
-    fields: SALES_ORDER_FIELDS,
-    whereClauses,
-    orderBy: "updated_at DESC",
-    limit: 1
-  });
-}
-
 async function fetchSalesOrderRecord(salesOrderId, orderNumber, headers) {
-  const query = buildSalesOrderLookupQuery(salesOrderId, orderNumber);
-  const rows = await fetchQueryRows(API_CONFIG.salesOrdersUrl, query, headers);
-  const matchedOrder = rows[0] ?? null;
+  if (orderNumber) {
+    const externalIdRows = await fetchFilteredRows(
+      API_CONFIG.salesOrdersUrl,
+      {
+        external_id: orderNumber,
+        sort: "updated_at",
+        dir: "desc",
+        limit: 1
+      },
+      headers
+    );
 
-  if (!matchedOrder) {
-    throw new Error(`No sales order matched "${orderNumber || salesOrderId}".`);
+    if (externalIdRows[0]) {
+      return externalIdRows[0];
+    }
   }
 
-  return matchedOrder;
+  if (salesOrderId) {
+    const katanaRows = await fetchFilteredRows(
+      API_CONFIG.salesOrdersUrl,
+      {
+        katana_id: salesOrderId,
+        sort: "updated_at",
+        dir: "desc",
+        limit: 1
+      },
+      headers
+    );
+
+    if (katanaRows[0]) {
+      return katanaRows[0];
+    }
+  }
+
+  throw new Error(`No sales order matched Katana ID "${salesOrderId || "N/A"}" or order number "${orderNumber || "N/A"}".`);
 }
 
-function buildCustomerLookupQuery(customerToken, salesOrder) {
-  const whereClauses = [];
+function buildCustomerLookupParams(customerToken, salesOrder) {
   const recordId = salesOrder?.customer_recordid ?? customerToken ?? "";
   const customerEmail = salesOrder?.customer_email ?? "";
 
-  if (recordId) {
-    whereClauses.push(buildEqualityClause("recordid", recordId));
-  }
-
-  if (customerEmail) {
-    whereClauses.push(buildEqualityClause("email", customerEmail));
-  }
-
-  if (!whereClauses.length) {
-    return "";
-  }
-
-  return buildScopedSelectQuery({
-    fields: CUSTOMER_FIELDS,
-    whereClauses,
-    orderBy: "last_sales_date DESC",
-    limit: 1
-  });
-}
-
-async function fetchCustomerRecord(customerToken, salesOrder, headers) {
-  const query = buildCustomerLookupQuery(customerToken, salesOrder);
-
-  if (!query) {
+  if (!recordId && !customerEmail) {
     return null;
   }
 
-  const rows = await fetchQueryRows(API_CONFIG.customersUrl, query, headers);
+  return {
+    recordid: recordId,
+    email: customerEmail,
+    sort: "last_sales_date",
+    dir: "desc",
+    limit: 1
+  };
+}
+
+async function fetchCustomerRecord(customerToken, salesOrder, headers) {
+  const params = buildCustomerLookupParams(customerToken, salesOrder);
+
+  if (!params) {
+    return null;
+  }
+
+  const payload = await fetchJson(
+    buildUrlWithParams(API_CONFIG.customersUrl, params),
+    {
+      method: "GET",
+      headers
+    }
+  );
+  const rows = normalizeQueryRows(payload);
   return rows[0] ?? null;
 }
 
@@ -457,7 +350,7 @@ async function fetchPanelData(pageUrl, orderNumber = "") {
   return {
     ok: true,
     meta: {
-      salesOrderId: salesOrderRecord?.id ?? salesOrderId,
+      salesOrderId: salesOrderRecord?.katana_id ?? salesOrderId,
       customerId: salesOrderRecord?.customer_recordid ?? customerRecord?.recordid ?? customerId,
       refreshedAt: new Date().toISOString()
     },
