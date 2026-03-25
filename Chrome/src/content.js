@@ -4,6 +4,8 @@ const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storag
 const PANEL_ID = "singularity-katana-panel-root";
 const PANEL_HOST_ID = "singularity-katana-panel-host";
 const PANEL_POSITION_KEY = "panelPosition";
+const ORDER_NUMBER_WAIT_MS = 10000;
+const ORDER_NUMBER_POLL_MS = 5000;
 
 let currentUrl = window.location.href;
 let elements = null;
@@ -356,8 +358,120 @@ function renderPanelData(result) {
   elements.refreshStatus.textContent = `Last refreshed ${formatTimestamp(result.meta.refreshedAt)}. Sales order ${result.meta.salesOrderId || "unknown"}.`;
 }
 
+function extractMeaningfulText(value) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text && text !== "-" && text !== "N/A" ? text : "";
+}
+
+function isLikelyOrderNumber(value) {
+  const text = extractMeaningfulText(value);
+
+  if (!text || text.length > 40) {
+    return false;
+  }
+
+  if (/[<>]/.test(text) || /\b(if you're seeing this message|javascript has been disabled|enable js)\b/i.test(text)) {
+    return false;
+  }
+
+  return /^[A-Z0-9][A-Z0-9._/-]*$/i.test(text) && /[0-9]/.test(text);
+}
+
+function getOrderNumberFromLabeledContent() {
+  const labelPattern = /\b(sales\s*order\s*#?|sales\s*order\s*number|order\s*#?|order\s*number|order\s*no\.?)\b/i;
+  const ignoredValues = new Set(["copy", "copied", "edit", "save"]);
+  const candidates = document.querySelectorAll("label, dt, th, div, span, p, h1, h2, h3");
+
+  for (const element of candidates) {
+    if (element.closest("noscript")) {
+      continue;
+    }
+
+    const labelText = extractMeaningfulText(element.textContent);
+
+    if (!labelPattern.test(labelText)) {
+      continue;
+    }
+
+    const siblingCandidates = [
+      element.nextElementSibling,
+      element.parentElement?.nextElementSibling,
+      ...Array.from(element.parentElement?.children ?? []).filter((node) => node !== element)
+    ];
+
+    for (const candidate of siblingCandidates) {
+      if (!candidate || candidate.closest("noscript")) {
+        continue;
+      }
+
+      const candidateText = extractMeaningfulText(candidate?.textContent);
+
+      if (!candidateText) {
+        continue;
+      }
+
+      const normalizedCandidate = candidateText.toLowerCase();
+
+      if (labelPattern.test(candidateText) || ignoredValues.has(normalizedCandidate) || !isLikelyOrderNumber(candidateText)) {
+        continue;
+      }
+
+      return candidateText;
+    }
+
+    const inlineMatch = labelText.match(/(?:#|number|no\.?)[:\s-]*([A-Z0-9][A-Z0-9._/-]*)$/i);
+
+    if (inlineMatch?.[1] && isLikelyOrderNumber(inlineMatch[1])) {
+      return inlineMatch[1];
+    }
+  }
+
+  return "";
+}
+
 function getOrderNumberFromPage() {
-  return document.querySelector('input[name="orderNo"]')?.value?.trim() ?? "";
+  const selectorCandidates = [
+    'input[name="orderNo"]',
+    'input[name="orderNumber"]',
+    'input[name="order_number"]',
+    'input[placeholder*="Order" i]',
+    'input[aria-label*="Order" i]',
+    '[data-testid*="order" i] input',
+    '[data-test*="order" i] input'
+  ];
+
+  for (const selector of selectorCandidates) {
+    const inputValue = extractMeaningfulText(document.querySelector(selector)?.value);
+
+    if (isLikelyOrderNumber(inputValue)) {
+      return inputValue;
+    }
+  }
+
+  return getOrderNumberFromLabeledContent();
+}
+
+function wait(delayMs) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
+async function getOrderNumberWithDelay() {
+  const deadline = Date.now() + ORDER_NUMBER_WAIT_MS;
+  let orderNumber = "";
+
+  while (Date.now() <= deadline) {
+    orderNumber = getOrderNumberFromPage();
+
+    if (orderNumber) {
+      return orderNumber;
+    }
+
+    await wait(ORDER_NUMBER_POLL_MS);
+  }
+
+  return getOrderNumberFromPage();
 }
 
 async function loadPanelData({ preserveView = false } = {}) {
@@ -365,18 +479,20 @@ async function loadPanelData({ preserveView = false } = {}) {
     return;
   }
 
-  elements.refreshStatus.textContent = "Refreshing data from Singularity endpoints...";
+  elements.refreshStatus.textContent = "Waiting for Katana order details...";
 
   if (!preserveView && lastVerifiedAt) {
     showVerifiedSplash(lastVerifiedAt, "Loading customer and sales order data...");
   }
 
   try {
+    const orderNumber = await getOrderNumberWithDelay();
+    elements.refreshStatus.textContent = "Refreshing data from Singularity endpoints...";
     const result = await sendRuntimeMessage({
       action: "refreshPanelData",
       payload: {
         pageUrl: window.location.href,
-        orderNumber: getOrderNumberFromPage()
+        orderNumber
       }
     });
 
