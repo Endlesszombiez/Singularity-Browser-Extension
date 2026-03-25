@@ -12,7 +12,7 @@ Browser extension scaffold for Chrome and Firefox that injects a Singularity pan
 
 ## Quick start
 
-1. Open the repo folder in Chrome as an unpacked extension, or use the Firefox-specific manifest for Firefox.
+1. Load `Chrome/` in Chrome as an unpacked extension, or use `Firefox/manifest.json` for Firefox.
 2. Visit a Katana sales order page that matches the target URL prefix.
 3. Enter a public key and secret key in the injected panel.
 4. After verification succeeds, the panel will fetch the extra details and KPI cards.
@@ -20,17 +20,17 @@ Browser extension scaffold for Chrome and Firefox that injects a Singularity pan
 
 ## Important files
 
-- [manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/manifest.json)
-- [firefox/manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/firefox/manifest.json)
-- [src/background.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/background.js)
-- [src/content.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/content.js)
-- [src/config.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/config.js)
-- [src/options.html](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/options.html)
-- [docs/USAGE.md](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/docs/USAGE.md)
+- [Chrome/manifest.json](./Chrome/manifest.json)
+- [Firefox/manifest.json](./Firefox/manifest.json)
+- [Chrome/src/background.js](./Chrome/src/background.js)
+- [Chrome/src/content.js](./Chrome/src/content.js)
+- [Chrome/src/config.js](./Chrome/src/config.js)
+- [Chrome/src/options.html](./Chrome/src/options.html)
+- [Chrome/docs/USAGE.md](./Chrome/docs/USAGE.md)
 
 ## Endpoint placeholders
 
-Update the placeholder API URLs in [src/config.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/config.js):
+Update the placeholder API URLs in [Chrome/src/config.js](./Chrome/src/config.js):
 
 - `verificationUrl`
 - `customersUrl`
@@ -42,4 +42,4 @@ The extension encrypts the stored keys before writing them to extension storage,
 
 ## Browser note
 
-Chrome uses the root MV3 manifest at [manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/manifest.json). Firefox temporary add-ons should use [firefox/manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/firefox/manifest.json), because some Firefox installs still reject MV3 background service workers.
+Chrome uses [Chrome/manifest.json](./Chrome/manifest.json). Firefox temporary add-ons should use [Firefox/manifest.json](./Firefox/manifest.json), because some Firefox installs still reject MV3 background service workers.

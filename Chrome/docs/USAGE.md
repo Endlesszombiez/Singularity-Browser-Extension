@@ -2,17 +2,17 @@
 
 ## Project structure
 
-- [manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/manifest.json): cross-browser extension manifest
-- [src/background.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/background.js): credential verification, encrypted storage, and API fetch orchestration
-- [src/content.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/content.js): injected Katana panel logic
-- [src/panel.css](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/panel.css): injected panel styles
-- [src/options.html](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/options.html): settings page for rotating or clearing credentials
-- [src/options.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/options.js): settings page behavior
-- [src/config.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/config.js): central location for API endpoint updates
+- [Chrome/manifest.json](../manifest.json): Chrome extension manifest
+- [Chrome/src/background.js](../src/background.js): credential verification, encrypted storage, and API fetch orchestration
+- [Chrome/src/content.js](../src/content.js): injected Katana panel logic
+- [Chrome/src/panel.css](../src/panel.css): injected panel styles
+- [Chrome/src/options.html](../src/options.html): settings page for rotating or clearing credentials
+- [Chrome/src/options.js](../src/options.js): settings page behavior
+- [Chrome/src/config.js](../src/config.js): central location for API endpoint updates
 
 ## Where to update endpoint URLs
 
-Edit [src/config.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/config.js).
+Edit [Chrome/src/config.js](../src/config.js).
 
 Replace these placeholder values:
 
@@ -20,7 +20,7 @@ Replace these placeholder values:
 - `customersUrl`
 - `salesOrdersUrl`
 
-If your real API uses a different host, also update the allowed hosts in [manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/manifest.json) and [firefox/manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/firefox/manifest.json).
+If your real API uses a different host, also update the allowed hosts in [Chrome/manifest.json](../manifest.json) and [Firefox/manifest.json](../../Firefox/manifest.json).
 
 ## How the credential flow works
 
@@ -47,13 +47,13 @@ If your real API uses a different host, also update the allowed hosts in [manife
 1. Open `chrome://extensions`
 2. Enable `Developer mode`
 3. Click `Load unpacked`
-4. Select `/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension`
+4. Select the `Chrome/` folder
 
 ## Load in Firefox
 
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click `Load Temporary Add-on`
-3. Select [firefox/manifest.json](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/firefox/manifest.json)
+3. Select [Firefox/manifest.json](../../Firefox/manifest.json)
 
 Firefox temporary add-ons are removed when the browser closes, so reload it the same way during development.
 
@@ -72,7 +72,7 @@ The scaffold expects the endpoints to return JSON. The code already tolerates mi
 - Customer: `accountManager`, `lifetimeValue`, `openInvoices`, `shippingRisk`, `tags`
 - Sales order: `margin`, `fillRate`, `promisedShipDate`, `fulfillmentStatus`, `lineHealth`
 
-You can adjust the data mapping logic in [src/background.js](/Users/rpicard/Documents/GitHub/Singularity-Katana-Browser-Extension/src/background.js) when the real payload shapes are available.
+You can adjust the data mapping logic in [Chrome/src/background.js](../src/background.js) when the real payload shapes are available.
 
 ## Security note
 

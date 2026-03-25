@@ -28,6 +28,16 @@
       "run_at": "document_idle"
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "images/CompanyLogo.png"
+      ],
+      "matches": [
+        "https://factory.katanamrp.com/*"
+      ]
+    }
+  ],
   "options_ui": {
     "page": "src/options.html",
     "open_in_tab": true

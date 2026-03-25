@@ -8,6 +8,7 @@ const PANEL_POSITION_KEY = "panelPosition";
 let currentUrl = window.location.href;
 let elements = null;
 let dragState = null;
+let lastVerifiedAt = null;
 
 function isTargetUrl(url) {
   return url.startsWith(TARGET_URL_PREFIX);
@@ -21,7 +22,7 @@ async function getStoredPanelPosition() {
   try {
     const stored = await storageApi.get(PANEL_POSITION_KEY);
     return stored?.[PANEL_POSITION_KEY] ?? null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -29,7 +30,7 @@ async function getStoredPanelPosition() {
 async function savePanelPosition(position) {
   try {
     await storageApi.set({ [PANEL_POSITION_KEY]: position });
-  } catch (error) {
+  } catch {
     // Ignore storage failures and keep the panel usable.
   }
 }
@@ -46,8 +47,8 @@ function clampPanelPosition(position, host) {
 
 function applyPanelPosition(position, host) {
   const safePosition = clampPanelPosition(position, host);
-  host.style.left = safePosition.left + "px";
-  host.style.top = safePosition.top + "px";
+  host.style.left = `${safePosition.left}px`;
+  host.style.top = `${safePosition.top}px`;
   host.style.right = "auto";
   host.style.bottom = "auto";
 }
@@ -59,7 +60,7 @@ function formatTimestamp(value) {
 
   try {
     return new Date(value).toLocaleString();
-  } catch (error) {
+  } catch {
     return value;
   }
 }
@@ -72,15 +73,15 @@ function createPanel() {
   const host = document.createElement("div");
   host.id = PANEL_HOST_ID;
   const root = document.createElement("aside");
+  const logoUrl = runtimeApi.getURL("images/CompanyLogo.png");
   root.id = PANEL_ID;
   root.innerHTML = `
     <div class="skp-shell">
       <header class="skp-header">
         <div>
-          <p class="skp-eyebrow">Singularity</p>
           <h2>Sales Order Intelligence</h2>
+          <p class="skp-header-copy">Singularity customer and sales order details for the current Katana order.</p>
         </div>
-        <button type="button" class="skp-ghost" data-action="open-settings">Settings</button>
       </header>
       <section class="skp-view" data-view="auth">
         <p class="skp-copy">Verify your API keys before the panel loads customer and sales order insights.</p>
@@ -100,6 +101,13 @@ function createPanel() {
         </form>
         <p class="skp-meta" id="skp-auth-status">No verified key pair stored.</p>
       </section>
+      <section class="skp-view skp-verified-view" data-view="verified" hidden>
+        <img class="skp-logo" src="${logoUrl}" alt="Company logo" />
+        <p class="skp-verified-title">Key Verified</p>
+        <p class="skp-meta" id="skp-verified-meta">Stored credentials are ready to use.</p>
+        <p class="skp-meta" id="skp-verified-status">Loading customer and sales order data...</p>
+        <button type="button" class="skp-danger" data-action="remove-api-key">Remove Api Key</button>
+      </section>
       <section class="skp-view" data-view="dashboard" hidden>
         <div class="skp-status-row">
           <p class="skp-meta" id="skp-refresh-status">Waiting for data refresh.</p>
@@ -108,36 +116,36 @@ function createPanel() {
         <div class="skp-grid">
           <article class="skp-card">
             <p class="skp-card-label">Company</p>
-            <strong id="skp-account-manager">-</strong>
+            <strong id="skp-company-name">-</strong>
           </article>
           <article class="skp-card">
-            <p class="skp-card-label">Customer email</p>
-            <strong id="skp-lifetime-value">-</strong>
+            <p class="skp-card-label">Contact</p>
+            <strong id="skp-contact-name">-</strong>
           </article>
           <article class="skp-card">
             <p class="skp-card-label">Order total</p>
-            <strong id="skp-order-margin">-</strong>
+            <strong id="skp-order-total">-</strong>
           </article>
           <article class="skp-card">
             <p class="skp-card-label">Order status</p>
-            <strong id="skp-fill-rate">-</strong>
+            <strong id="skp-order-status">-</strong>
           </article>
         </div>
         <div class="skp-detail-group">
           <section class="skp-detail-card">
             <h3>Customer snapshot</h3>
             <dl>
-              <div><dt>Contact</dt><dd id="skp-shipping-risk">-</dd></div>
-              <div><dt>Phone</dt><dd id="skp-customer-tags">-</dd></div>
-              <div><dt>Email</dt><dd id="skp-open-invoices">-</dd></div>
+              <div><dt>Assigned to</dt><dd id="skp-customer-assigned-to">-</dd></div>
+              <div><dt>Phone</dt><dd id="skp-customer-phone">-</dd></div>
+              <div><dt>Email</dt><dd id="skp-customer-email">-</dd></div>
             </dl>
           </section>
           <section class="skp-detail-card">
             <h3>Sales order snapshot</h3>
             <dl>
-              <div><dt>External ID</dt><dd id="skp-promised-date">-</dd></div>
-              <div><dt>Updated at</dt><dd id="skp-fulfillment-status">-</dd></div>
-              <div><dt>Items</dt><dd id="skp-line-health">-</dd></div>
+              <div><dt>External ID</dt><dd id="skp-order-external-id">-</dd></div>
+              <div><dt>Tracking number</dt><dd id="skp-order-tracking-number">-</dd></div>
+              <div><dt>Ship method</dt><dd id="skp-order-ship-method">-</dd></div>
             </dl>
           </section>
         </div>
@@ -153,33 +161,44 @@ function createPanel() {
     shell: root.querySelector(".skp-shell"),
     header: root.querySelector(".skp-header"),
     authView: root.querySelector('[data-view="auth"]'),
+    verifiedView: root.querySelector('[data-view="verified"]'),
     dashboardView: root.querySelector('[data-view="dashboard"]'),
     authForm: root.querySelector("#skp-auth-form"),
     secretInput: root.querySelector('input[name="secretKey"]'),
     revealSecretButton: root.querySelector('[data-action="hold-reveal-secret"]'),
     authStatus: root.querySelector("#skp-auth-status"),
+    verifiedMeta: root.querySelector("#skp-verified-meta"),
+    verifiedStatus: root.querySelector("#skp-verified-status"),
     refreshStatus: root.querySelector("#skp-refresh-status"),
-    accountManager: root.querySelector("#skp-account-manager"),
-    lifetimeValue: root.querySelector("#skp-lifetime-value"),
-    orderMargin: root.querySelector("#skp-order-margin"),
-    fillRate: root.querySelector("#skp-fill-rate"),
-    openInvoices: root.querySelector("#skp-open-invoices"),
-    shippingRisk: root.querySelector("#skp-shipping-risk"),
-    customerTags: root.querySelector("#skp-customer-tags"),
-    promisedDate: root.querySelector("#skp-promised-date"),
-    fulfillmentStatus: root.querySelector("#skp-fulfillment-status"),
-    lineHealth: root.querySelector("#skp-line-health")
+    companyName: root.querySelector("#skp-company-name"),
+    contactName: root.querySelector("#skp-contact-name"),
+    orderTotal: root.querySelector("#skp-order-total"),
+    orderStatus: root.querySelector("#skp-order-status"),
+    customerAssignedTo: root.querySelector("#skp-customer-assigned-to"),
+    customerPhone: root.querySelector("#skp-customer-phone"),
+    customerEmail: root.querySelector("#skp-customer-email"),
+    orderExternalId: root.querySelector("#skp-order-external-id"),
+    orderTrackingNumber: root.querySelector("#skp-order-tracking-number"),
+    orderShipMethod: root.querySelector("#skp-order-ship-method")
   };
 
-  root.addEventListener("click", function (event) {
+  root.addEventListener("click", async function (event) {
     const action = event.target.closest("[data-action]")?.dataset.action;
 
-    if (action === "open-settings") {
-      runtimeApi.openOptionsPage();
+    if (action === "refresh-data") {
+      await loadPanelData({ preserveView: true });
     }
 
-    if (action === "refresh-data") {
-      loadPanelData();
+    if (action === "remove-api-key") {
+      elements.verifiedStatus.textContent = "Removing stored API key...";
+      const result = await sendRuntimeMessage({ action: "clearCredentials" });
+
+      if (!result?.ok) {
+        elements.verifiedStatus.textContent = result?.error ?? "Unable to remove the stored API key.";
+        return;
+      }
+
+      window.location.reload();
     }
   });
 
@@ -278,10 +297,11 @@ function createPanel() {
         throw new Error(result.error ?? "Credential verification failed.");
       }
 
+      lastVerifiedAt = result.verifiedAt;
       elements.authForm.reset();
       setSecretVisibility(false);
-      elements.authStatus.textContent = "Credentials verified on " + formatTimestamp(result.verifiedAt) + ".";
-      await loadPanelData();
+      showVerifiedSplash(result.verifiedAt, "Loading customer and sales order data...");
+      await loadPanelData({ preserveView: false });
     } catch (error) {
       elements.authStatus.textContent = error.message;
     }
@@ -292,54 +312,63 @@ function createPanel() {
 
 function setView(viewName) {
   elements.authView.hidden = viewName !== "auth";
+  elements.verifiedView.hidden = viewName !== "verified";
   elements.dashboardView.hidden = viewName !== "dashboard";
 }
 
+function showVerifiedSplash(verifiedAt, message) {
+  lastVerifiedAt = verifiedAt ?? lastVerifiedAt;
+  elements.verifiedMeta.textContent = lastVerifiedAt
+    ? `Verified on ${formatTimestamp(lastVerifiedAt)}.`
+    : "Stored credentials are ready to use.";
+  elements.verifiedStatus.textContent = message ?? "Loading customer and sales order data...";
+  setView("verified");
+}
+
+function setLinkedValue(container, value) {
+  const textValue = String(value ?? "N/A");
+  container.innerHTML = "";
+
+  if (textValue && textValue !== "N/A") {
+    const link = document.createElement("a");
+    link.href = `mailto:${textValue}`;
+    link.textContent = textValue;
+    link.className = "skp-inline-link";
+    container.appendChild(link);
+    return;
+  }
+
+  container.textContent = textValue;
+}
+
 function renderPanelData(result) {
-  elements.accountManager.textContent = result.customer.companyName;
-  const emailValue = String(result.salesOrder.customerEmail);
-  elements.lifetimeValue.innerHTML = "";
-  if (emailValue && emailValue !== "N/A") {
-    const link = document.createElement("a");
-    link.href = "mailto:" + emailValue;
-    link.textContent = emailValue;
-    link.className = "skp-inline-link";
-    elements.lifetimeValue.appendChild(link);
-  } else {
-    elements.lifetimeValue.textContent = emailValue;
-  }
-  elements.orderMargin.textContent = String(result.salesOrder.totalValue);
-  elements.fillRate.textContent = String(result.salesOrder.status);
-  elements.openInvoices.innerHTML = "";
-  if (emailValue && emailValue !== "N/A") {
-    const link = document.createElement("a");
-    link.href = "mailto:" + emailValue;
-    link.textContent = emailValue;
-    link.className = "skp-inline-link";
-    elements.openInvoices.appendChild(link);
-  } else {
-    elements.openInvoices.textContent = emailValue;
-  }
-  elements.shippingRisk.textContent = String(result.customer.contactName);
-  elements.customerTags.textContent = String(result.customer.phone);
-  elements.promisedDate.textContent = String(result.salesOrder.externalId);
-  elements.fulfillmentStatus.textContent = String(result.salesOrder.updatedAt);
-  elements.lineHealth.textContent = result.salesOrder.lineItems.length
-    ? result.salesOrder.lineItems.join(", ")
-    : "No line items returned";
-  elements.refreshStatus.textContent = "Last refreshed " + formatTimestamp(result.meta.refreshedAt) + ". Sales order " + (result.meta.salesOrderId || "unknown") + ".";
+  elements.companyName.textContent = String(result.customer.companyName || result.salesOrder.companyName);
+  elements.contactName.textContent = String(result.customer.contactName || result.salesOrder.contactName);
+  elements.orderTotal.textContent = String(result.salesOrder.totalValue);
+  elements.orderStatus.textContent = String(result.salesOrder.status);
+  elements.customerAssignedTo.textContent = String(result.customer.assignedTo);
+  elements.customerPhone.textContent = String(result.customer.phone);
+  setLinkedValue(elements.customerEmail, result.customer.email || result.salesOrder.customerEmail);
+  elements.orderExternalId.textContent = String(result.salesOrder.externalId);
+  elements.orderTrackingNumber.textContent = String(result.salesOrder.trackingNumber);
+  elements.orderShipMethod.textContent = String(result.salesOrder.shipMethod);
+  elements.refreshStatus.textContent = `Last refreshed ${formatTimestamp(result.meta.refreshedAt)}. Sales order ${result.meta.salesOrderId || "unknown"}.`;
 }
 
 function getOrderNumberFromPage() {
   return document.querySelector('input[name="orderNo"]')?.value?.trim() ?? "";
 }
 
-async function loadPanelData() {
+async function loadPanelData({ preserveView = false } = {}) {
   if (!elements) {
     return;
   }
 
   elements.refreshStatus.textContent = "Refreshing data from Singularity endpoints...";
+
+  if (!preserveView && lastVerifiedAt) {
+    showVerifiedSplash(lastVerifiedAt, "Loading customer and sales order data...");
+  }
 
   try {
     const result = await sendRuntimeMessage({
@@ -357,6 +386,11 @@ async function loadPanelData() {
     setView("dashboard");
     renderPanelData(result);
   } catch (error) {
+    if (lastVerifiedAt) {
+      showVerifiedSplash(lastVerifiedAt, error.message);
+      return;
+    }
+
     setView("auth");
     elements.authStatus.textContent = error.message;
   }
@@ -375,12 +409,14 @@ async function bootstrapPanel() {
   }
 
   const authState = await sendRuntimeMessage({ action: "getAuthState" });
+  lastVerifiedAt = authState.verifiedAt ?? null;
   elements.authStatus.textContent = authState.isVerified
-    ? "Credentials previously verified on " + formatTimestamp(authState.verifiedAt) + "."
+    ? `Credentials previously verified on ${formatTimestamp(authState.verifiedAt)}.`
     : "No verified key pair stored.";
 
   if (authState.isVerified) {
-    await loadPanelData();
+    showVerifiedSplash(authState.verifiedAt, "Loading customer and sales order data...");
+    await loadPanelData({ preserveView: false });
   } else {
     setView("auth");
   }

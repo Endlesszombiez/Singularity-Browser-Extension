@@ -1,14 +1,8 @@
-const API_CONFIG = {
-  verificationUrl: "https://singularitysalesplatform.com/api/public/verify",
-  customersUrl: "https://singularitysalesplatform.com/api/public/customers",
-  salesOrdersUrl: "https://singularitysalesplatform.com/api/public/sales-orders"
-};
+import { API_CONFIG, STORAGE_KEYS } from "./config.js";
+import { decryptJson, encryptJson, getOrCreateEncryptionKey } from "./crypto.js";
 
-const STORAGE_KEYS = {
-  credentials: "encryptedCredentials",
-  encryptionKey: "localEncryptionKey",
-  onboarding: "verificationState"
-};
+const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
+const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storage.local;
 
 const CUSTOMER_FIELDS = [
   "companyname",
@@ -80,87 +74,6 @@ const SALES_ORDER_FIELDS = [
   "shipping_country"
 ];
 
-const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
-const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storage.local;
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
-function bytesToBase64(bytes) {
-  let binary = "";
-
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary);
-}
-
-function base64ToBytes(value) {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
-}
-
-async function getOrCreateEncryptionKey(storageApiRef, storageKeyName) {
-  const stored = await storageApiRef.get(storageKeyName);
-  const existingKey = stored[storageKeyName];
-
-  if (existingKey) {
-    return existingKey;
-  }
-
-  const rawKey = crypto.getRandomValues(new Uint8Array(32));
-  const base64Key = bytesToBase64(rawKey);
-  await storageApiRef.set({ [storageKeyName]: base64Key });
-
-  return base64Key;
-}
-
-async function importAesKey(base64Key) {
-  return crypto.subtle.importKey(
-    "raw",
-    base64ToBytes(base64Key),
-    { name: "AES-GCM" },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-async function encryptJson(value, base64Key) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const aesKey = await importAesKey(base64Key);
-  const cipherBuffer = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aesKey,
-    encoder.encode(JSON.stringify(value))
-  );
-
-  return {
-    iv: bytesToBase64(iv),
-    payload: bytesToBase64(new Uint8Array(cipherBuffer))
-  };
-}
-
-async function decryptJson(value, base64Key) {
-  if (!value?.iv || !value?.payload) {
-    return null;
-  }
-
-  const aesKey = await importAesKey(base64Key);
-  const plainBuffer = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: base64ToBytes(value.iv) },
-    aesKey,
-    base64ToBytes(value.payload)
-  );
-
-  return JSON.parse(decoder.decode(plainBuffer));
-}
-
 async function getStoredCredentials() {
   const keyMaterial = await getOrCreateEncryptionKey(storageApi, STORAGE_KEYS.encryptionKey);
   const stored = await storageApi.get([STORAGE_KEYS.credentials, STORAGE_KEYS.onboarding]);
@@ -199,7 +112,7 @@ function isPlaceholderEndpoint(url) {
 
 function assertConfiguredEndpoint(url, label) {
   if (isPlaceholderEndpoint(url)) {
-    throw new Error(label + " endpoint is not configured yet. Update the placeholder URL before using this action.");
+    throw new Error(`${label} endpoint is not configured yet. Update src/config.js with the real URL.`);
   }
 }
 
@@ -299,7 +212,7 @@ function buildScopedSelectQuery({ fields, whereClauses = [], orderBy = "", limit
 function buildUrlWithParams(baseUrl, params) {
   const url = new URL(baseUrl);
 
-  Object.entries(params).forEach(function ([key, value]) {
+  Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, String(value));
     }
@@ -461,12 +374,10 @@ function buildSalesOrderLookupQuery(salesOrderId, orderNumber) {
   }
 
   const candidateTokens = [...new Set([salesOrderId, orderNumber].filter(Boolean))];
-  const whereClauses = candidateTokens.flatMap(function (token) {
-    return [
-      buildEqualityClause("id", token),
-      buildEqualityClause("external_id", token)
-    ];
-  });
+  const whereClauses = candidateTokens.flatMap((token) => ([
+    buildEqualityClause("id", token),
+    buildEqualityClause("external_id", token)
+  ]));
 
   return buildScopedSelectQuery({
     fields: SALES_ORDER_FIELDS,
@@ -525,9 +436,9 @@ async function fetchCustomerRecord(customerToken, salesOrder, headers) {
 }
 
 async function fetchPanelData(pageUrl, orderNumber = "") {
-  const credentialsState = await getStoredCredentials();
+  const { credentials } = await getStoredCredentials();
 
-  if (!credentialsState.credentials) {
+  if (!credentials) {
     return {
       ok: false,
       reason: "missing_credentials"
@@ -539,7 +450,7 @@ async function fetchPanelData(pageUrl, orderNumber = "") {
   assertConfiguredEndpoint(API_CONFIG.salesOrdersUrl, "Sales orders");
   const salesOrderId = url.pathname.split("/").filter(Boolean).pop() ?? "";
   const customerId = url.searchParams.get("customerId") ?? "";
-  const headers = buildAuthHeaders(credentialsState.credentials);
+  const headers = buildAuthHeaders(credentials);
   const salesOrderRecord = await fetchSalesOrderRecord(salesOrderId, orderNumber, headers);
   const customerRecord = await fetchCustomerRecord(customerId, salesOrderRecord, headers);
 
@@ -561,10 +472,10 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     switch (action) {
       case "getAuthState": {
-        const credentialsState = await getStoredCredentials();
+        const { credentials, verifiedAt } = await getStoredCredentials();
         sendResponse({
-          isVerified: Boolean(credentialsState.credentials),
-          verifiedAt: credentialsState.verifiedAt
+          isVerified: Boolean(credentials),
+          verifiedAt
         });
         break;
       }
