@@ -5,6 +5,7 @@ const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storag
 const PANEL_ID = "singularity-katana-panel-root";
 const PANEL_HOST_ID = "singularity-katana-panel-host";
 const PANEL_POSITION_KEY = "panelPosition";
+const PANEL_DEBUG_LOG_ID = "skp-panel-debug-log";
 const ORDER_NUMBER_WAIT_MS = 10000;
 const ORDER_NUMBER_POLL_MS = 5000;
 const METHOD_ROW_LIMIT = 50;
@@ -22,6 +23,10 @@ let currentUrl = window.location.href;
 let elements = null;
 let dragState = null;
 let lastVerifiedAt = null;
+let katanaDebugEntries = [];
+let isKatanaPanelMinimized = false;
+let katanaMinimizedRestorePosition = null;
+let katanaShouldRestoreMinimizedPosition = false;
 let methodScanTimeoutId = null;
 let methodDebugEntries = [];
 let methodScanInProgress = false;
@@ -177,6 +182,58 @@ function formatTimestamp(value) {
   }
 }
 
+function updateKatanaDebugLog() {
+  if (!elements?.panelDebugLog) {
+    return;
+  }
+
+  elements.panelDebugLog.textContent = katanaDebugEntries.join("\n");
+  elements.panelDebugLog.scrollTop = elements.panelDebugLog.scrollHeight;
+}
+
+function pushKatanaDebug(message, detail = "") {
+  const timestamp = new Date().toLocaleTimeString();
+  const line = detail ? `[${timestamp}] ${message}: ${detail}` : `[${timestamp}] ${message}`;
+
+  katanaDebugEntries.push(line);
+
+  if (katanaDebugEntries.length > 80) {
+    katanaDebugEntries = katanaDebugEntries.slice(-80);
+  }
+
+  updateKatanaDebugLog();
+}
+
+function updateKatanaPanelMinimizedState() {
+  if (!elements?.shell || !elements?.minimizeButton) {
+    return;
+  }
+
+  elements.shell.classList.toggle("skp-minimized", isKatanaPanelMinimized);
+  elements.minimizeButton.textContent = isKatanaPanelMinimized ? "+" : "_";
+  elements.minimizeButton.title = isKatanaPanelMinimized ? "Expand panel" : "Minimize panel";
+}
+
+async function keepKatanaPanelInBounds() {
+  if (!elements?.host) {
+    return;
+  }
+
+  const rect = elements.host.getBoundingClientRect();
+  const safePosition = clampPanelPosition({ left: rect.left, top: rect.top }, elements.host);
+  applyPanelPosition(safePosition, elements.host);
+  await savePanelPosition(safePosition);
+}
+
+async function restoreKatanaMinimizedPositionIfNeeded() {
+  if (!elements?.host || !katanaShouldRestoreMinimizedPosition || !katanaMinimizedRestorePosition) {
+    return;
+  }
+
+  applyPanelPosition(katanaMinimizedRestorePosition, elements.host);
+  await savePanelPosition(katanaMinimizedRestorePosition);
+}
+
 function createPanel() {
   if (document.getElementById(PANEL_HOST_ID)) {
     return elements;
@@ -190,78 +247,89 @@ function createPanel() {
   root.innerHTML = `
     <div class="skp-shell">
       <header class="skp-header">
-        <div>
+        <div class="skp-header-main">
           <h2>Sales Order Intelligence</h2>
-          <p class="skp-header-copy">Singularity customer and sales order details for the current Katana order.</p>
+          <p class="skp-header-copy">$ singularity panel --katana --live</p>
+        </div>
+        <div class="skp-header-actions">
+          <button type="button" class="skp-window-toggle" data-action="toggle-minimize" title="Minimize panel">_</button>
         </div>
       </header>
-      <section class="skp-view" data-view="auth">
-        <p class="skp-copy">Verify your API keys before the panel loads customer and sales order insights.</p>
-        <form class="skp-form" id="skp-auth-form">
-          <label>
-            <span>Public key</span>
-            <input type="text" name="publicKey" autocomplete="off" spellcheck="false" required />
-          </label>
-          <label>
-            <span>Secret key</span>
-            <div class="skp-secret-field">
-              <input type="password" name="secretKey" autocomplete="off" spellcheck="false" required />
-              <button type="button" class="skp-reveal" data-action="hold-reveal-secret">Hold to reveal</button>
+      <div class="skp-body">
+        <section class="skp-main-pane">
+          <section class="skp-view" data-view="auth">
+            <p class="skp-copy">Verify your API keys before the panel loads customer and sales order insights.</p>
+            <form class="skp-form" id="skp-auth-form">
+              <label>
+                <span>Public key</span>
+                <input type="text" name="publicKey" autocomplete="off" spellcheck="false" required />
+              </label>
+              <label>
+                <span>Secret key</span>
+                <div class="skp-secret-field">
+                  <input type="password" name="secretKey" autocomplete="off" spellcheck="false" required />
+                  <button type="button" class="skp-reveal" data-action="hold-reveal-secret">Reveal</button>
+                </div>
+              </label>
+              <button type="submit" class="skp-primary">Verify & Save</button>
+            </form>
+            <p class="skp-meta" id="skp-auth-status">No verified key pair stored.</p>
+          </section>
+          <section class="skp-view skp-verified-view" data-view="verified" hidden>
+            <img class="skp-logo" src="${logoUrl}" alt="Company logo" />
+            <p class="skp-verified-title">Credentials Verified</p>
+            <p class="skp-meta" id="skp-verified-meta">Stored credentials are ready to use.</p>
+            <p class="skp-meta" id="skp-verified-status">Loading customer and sales order data...</p>
+            <button type="button" class="skp-danger" data-action="remove-api-key">Remove API Key</button>
+          </section>
+          <section class="skp-view" data-view="dashboard" hidden>
+            <div class="skp-status-row">
+              <p class="skp-meta" id="skp-refresh-status">Waiting for data refresh.</p>
+              <button type="button" class="skp-ghost" data-action="refresh-data">Refresh</button>
             </div>
-          </label>
-          <button type="submit" class="skp-primary">Verify & Save</button>
-        </form>
-        <p class="skp-meta" id="skp-auth-status">No verified key pair stored.</p>
-      </section>
-      <section class="skp-view skp-verified-view" data-view="verified" hidden>
-        <img class="skp-logo" src="${logoUrl}" alt="Company logo" />
-        <p class="skp-verified-title">Key Verified</p>
-        <p class="skp-meta" id="skp-verified-meta">Stored credentials are ready to use.</p>
-        <p class="skp-meta" id="skp-verified-status">Loading customer and sales order data...</p>
-        <button type="button" class="skp-danger" data-action="remove-api-key">Remove Api Key</button>
-      </section>
-      <section class="skp-view" data-view="dashboard" hidden>
-        <div class="skp-status-row">
-          <p class="skp-meta" id="skp-refresh-status">Waiting for data refresh.</p>
-          <button type="button" class="skp-ghost" data-action="refresh-data">Refresh</button>
-        </div>
-        <div class="skp-grid">
-          <article class="skp-card">
-            <p class="skp-card-label">Company</p>
-            <strong id="skp-company-name">-</strong>
-          </article>
-          <article class="skp-card">
-            <p class="skp-card-label">Contact</p>
-            <strong id="skp-contact-name">-</strong>
-          </article>
-          <article class="skp-card">
-            <p class="skp-card-label">Order total</p>
-            <strong id="skp-order-total">-</strong>
-          </article>
-          <article class="skp-card">
-            <p class="skp-card-label">Order status</p>
-            <strong id="skp-order-status">-</strong>
-          </article>
-        </div>
-        <div class="skp-detail-group">
-          <section class="skp-detail-card">
-            <h3>Customer snapshot</h3>
-            <dl>
-              <div><dt>Assigned to</dt><dd id="skp-customer-assigned-to">-</dd></div>
-              <div><dt>Phone</dt><dd id="skp-customer-phone">-</dd></div>
-              <div><dt>Email</dt><dd id="skp-customer-email">-</dd></div>
-            </dl>
+            <div class="skp-grid">
+              <article class="skp-card">
+                <p class="skp-card-label">Company</p>
+                <strong id="skp-company-name">-</strong>
+              </article>
+              <article class="skp-card">
+                <p class="skp-card-label">Contact</p>
+                <strong id="skp-contact-name">-</strong>
+              </article>
+              <article class="skp-card">
+                <p class="skp-card-label">Order total</p>
+                <strong id="skp-order-total">-</strong>
+              </article>
+              <article class="skp-card">
+                <p class="skp-card-label">Order status</p>
+                <strong id="skp-order-status">-</strong>
+              </article>
+            </div>
+            <div class="skp-detail-group">
+              <section class="skp-detail-card">
+                <h3>Customer Snapshot</h3>
+                <dl>
+                  <div><dt>Assigned to</dt><dd id="skp-customer-assigned-to">-</dd></div>
+                  <div><dt>Phone</dt><dd id="skp-customer-phone">-</dd></div>
+                  <div><dt>Email</dt><dd id="skp-customer-email">-</dd></div>
+                </dl>
+              </section>
+              <section class="skp-detail-card">
+                <h3>Sales Order Snapshot</h3>
+                <dl>
+                  <div><dt>External ID</dt><dd id="skp-order-external-id">-</dd></div>
+                  <div><dt>Tracking number</dt><dd id="skp-order-tracking-number">-</dd></div>
+                  <div><dt>Ship method</dt><dd id="skp-order-ship-method">-</dd></div>
+                </dl>
+              </section>
+            </div>
           </section>
-          <section class="skp-detail-card">
-            <h3>Sales order snapshot</h3>
-            <dl>
-              <div><dt>External ID</dt><dd id="skp-order-external-id">-</dd></div>
-              <div><dt>Tracking number</dt><dd id="skp-order-tracking-number">-</dd></div>
-              <div><dt>Ship method</dt><dd id="skp-order-ship-method">-</dd></div>
-            </dl>
-          </section>
-        </div>
-      </section>
+        </section>
+        <aside class="skp-debug-pane">
+          <div class="skp-debug-title">Debug Trace</div>
+          <pre id="${PANEL_DEBUG_LOG_ID}" class="skp-debug-log"></pre>
+        </aside>
+      </div>
     </div>
   `;
 
@@ -272,6 +340,7 @@ function createPanel() {
     host,
     shell: root.querySelector(".skp-shell"),
     header: root.querySelector(".skp-header"),
+    minimizeButton: root.querySelector('[data-action="toggle-minimize"]'),
     authView: root.querySelector('[data-view="auth"]'),
     verifiedView: root.querySelector('[data-view="verified"]'),
     dashboardView: root.querySelector('[data-view="dashboard"]'),
@@ -291,17 +360,49 @@ function createPanel() {
     customerEmail: root.querySelector("#skp-customer-email"),
     orderExternalId: root.querySelector("#skp-order-external-id"),
     orderTrackingNumber: root.querySelector("#skp-order-tracking-number"),
-    orderShipMethod: root.querySelector("#skp-order-ship-method")
+    orderShipMethod: root.querySelector("#skp-order-ship-method"),
+    panelDebugLog: root.querySelector(`#${PANEL_DEBUG_LOG_ID}`)
   };
+  updateKatanaDebugLog();
+  updateKatanaPanelMinimizedState();
 
   root.addEventListener("click", async (event) => {
     const action = event.target.closest("[data-action]")?.dataset.action;
 
+    if (action === "toggle-minimize") {
+      const wasMinimized = isKatanaPanelMinimized;
+
+      if (!wasMinimized) {
+        const rect = elements.host.getBoundingClientRect();
+        katanaMinimizedRestorePosition = { left: rect.left, top: rect.top };
+      }
+
+      isKatanaPanelMinimized = !isKatanaPanelMinimized;
+      updateKatanaPanelMinimizedState();
+
+      if (wasMinimized) {
+        await wait(0);
+        const rectBeforeClamp = elements.host.getBoundingClientRect();
+        await keepKatanaPanelInBounds();
+        const rectAfterClamp = elements.host.getBoundingClientRect();
+        katanaShouldRestoreMinimizedPosition = (
+          rectBeforeClamp.left !== rectAfterClamp.left ||
+          rectBeforeClamp.top !== rectAfterClamp.top
+        );
+      } else {
+        await restoreKatanaMinimizedPositionIfNeeded();
+      }
+
+      return;
+    }
+
     if (action === "refresh-data") {
+      pushKatanaDebug("Refresh requested");
       await loadPanelData({ preserveView: true });
     }
 
     if (action === "remove-api-key") {
+      pushKatanaDebug("Removing stored API key");
       elements.verifiedStatus.textContent = "Removing stored API key...";
       const result = await sendRuntimeMessage({ action: "clearCredentials" });
 
@@ -371,6 +472,7 @@ function createPanel() {
 
     const rect = elements.host.getBoundingClientRect();
     await savePanelPosition({ left: rect.left, top: rect.top });
+    katanaShouldRestoreMinimizedPosition = false;
     dragState = null;
   });
 
@@ -408,9 +510,11 @@ function createPanel() {
       lastVerifiedAt = result.verifiedAt;
       elements.authForm.reset();
       setSecretVisibility(false);
+      pushKatanaDebug("Credentials verified", formatTimestamp(result.verifiedAt));
       showVerifiedSplash(result.verifiedAt, "Loading customer and sales order data...");
       await loadPanelData({ preserveView: false });
     } catch (error) {
+      pushKatanaDebug("Credential verification failed", error.message);
       elements.authStatus.textContent = error.message;
     }
   });
@@ -426,6 +530,7 @@ function setView(viewName) {
 
 function showAuthView(message) {
   elements.authStatus.textContent = message ?? "No verified key pair stored.";
+  pushKatanaDebug("Auth view", elements.authStatus.textContent);
   setView("auth");
 }
 
@@ -435,6 +540,7 @@ function showVerifiedSplash(verifiedAt, message) {
     ? `Verified on ${formatTimestamp(lastVerifiedAt)}.`
     : "Stored credentials are ready to use.";
   elements.verifiedStatus.textContent = message ?? "Loading customer and sales order data...";
+  pushKatanaDebug("Verified view", elements.verifiedStatus.textContent);
   setView("verified");
 }
 
@@ -466,6 +572,7 @@ function renderPanelData(result) {
   elements.orderTrackingNumber.textContent = String(result.salesOrder.trackingNumber);
   elements.orderShipMethod.textContent = String(result.salesOrder.shipMethod);
   elements.refreshStatus.textContent = `Last refreshed ${formatTimestamp(result.meta.refreshedAt)}. Sales order ${result.meta.salesOrderId || "unknown"}.`;
+  pushKatanaDebug("Panel data rendered", elements.refreshStatus.textContent);
 }
 
 function extractMeaningfulText(value) {
@@ -590,6 +697,7 @@ async function loadPanelData({ preserveView = false } = {}) {
   }
 
   elements.refreshStatus.textContent = "Waiting for Katana order details...";
+  pushKatanaDebug("Load started", "Waiting for Katana order details");
 
   if (!preserveView && lastVerifiedAt) {
     showVerifiedSplash(lastVerifiedAt, "Loading customer and sales order data...");
@@ -597,7 +705,9 @@ async function loadPanelData({ preserveView = false } = {}) {
 
   try {
     const orderNumber = await getOrderNumberWithDelay();
+    pushKatanaDebug("Order number resolved", orderNumber || "No order number found");
     elements.refreshStatus.textContent = "Refreshing data from Singularity endpoints...";
+    pushKatanaDebug("Fetching panel data", "Refreshing data from Singularity endpoints");
     const result = await sendRuntimeMessage({
       action: "refreshPanelData",
       payload: {
@@ -613,6 +723,7 @@ async function loadPanelData({ preserveView = false } = {}) {
     setView("dashboard");
     renderPanelData(result);
   } catch (error) {
+    pushKatanaDebug("Load failed", error.message);
     if (lastVerifiedAt) {
       showVerifiedSplash(lastVerifiedAt, error.message);
       return;
@@ -847,6 +958,8 @@ async function bootstrapPanel() {
   if (storedPosition) {
     applyPanelPosition(storedPosition, elements.host);
   }
+
+  await keepKatanaPanelInBounds();
 
   const authState = await sendRuntimeMessage({ action: "getAuthState" });
   lastVerifiedAt = authState.verifiedAt ?? null;

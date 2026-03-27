@@ -1,27 +1,28 @@
 #singularity-katana-panel-host {
   position: fixed;
-  top: 88px;
-  right: 24px;
+  right: 20px;
+  bottom: 20px;
   z-index: 2147483647;
-  width: min(360px, calc(100vw - 32px));
-  font-family: Tahoma, Geneva, Verdana, sans-serif;
+  width: min(920px, calc(100vw - 32px));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 #singularity-katana-panel-root {
-  color: #1f2933;
+  color: #f5f5f5;
   pointer-events: auto;
 }
 
 #singularity-katana-panel-root .skp-shell {
-  background: #ffffff;
-  border: 1px solid #d7dee7;
-  border-radius: 10px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
-  padding: 18px;
+  background: rgba(18, 18, 18, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
 }
 
 #singularity-katana-panel-root .skp-header,
 #singularity-katana-panel-root .skp-view,
+#singularity-katana-panel-root .skp-main-pane,
 #singularity-katana-panel-root .skp-status-row,
 #singularity-katana-panel-root .skp-form,
 #singularity-katana-panel-root label,
@@ -35,18 +36,29 @@
 #singularity-katana-panel-root .skp-status-row {
   flex-direction: row;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
 }
 
 #singularity-katana-panel-root .skp-header {
   cursor: grab;
   user-select: none;
   touch-action: none;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 #singularity-katana-panel-root .skp-shell.skp-dragging,
 #singularity-katana-panel-root .skp-shell.skp-dragging .skp-header {
   cursor: grabbing;
+}
+
+#singularity-katana-panel-root .skp-shell.skp-minimized .skp-body {
+  display: none;
+}
+
+#singularity-katana-panel-root .skp-shell.skp-minimized + * {
+  display: none;
 }
 
 #singularity-katana-panel-root h2,
@@ -56,7 +68,7 @@
 }
 
 #singularity-katana-panel-root .skp-inline-link {
-  color: #8c3a14;
+  color: #f5f5f5;
   text-decoration: none;
 }
 
@@ -65,20 +77,23 @@
 }
 
 #singularity-katana-panel-root h2 {
-  font-size: 20px;
+  font-size: 16px;
   line-height: 1.1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 #singularity-katana-panel-root .skp-header-copy {
-  margin-top: 6px;
-  color: #52606d;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.62);
   font-size: 12px;
   line-height: 1.4;
-  max-width: 260px;
 }
 
 #singularity-katana-panel-root h3 {
-  font-size: 15px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 #singularity-katana-panel-root .skp-copy,
@@ -92,58 +107,83 @@
 #singularity-katana-panel-root .skp-copy,
 #singularity-katana-panel-root .skp-meta,
 #singularity-katana-panel-root dt {
-  color: #52606d;
+  color: rgba(255, 255, 255, 0.62);
 }
 
-#singularity-katana-panel-root .skp-view,
-#singularity-katana-panel-root .skp-form,
-#singularity-katana-panel-root .skp-detail-group {
-  margin-top: 16px;
+#singularity-katana-panel-root .skp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+  min-height: 420px;
 }
 
 #singularity-katana-panel-root .skp-view[hidden] {
   display: none !important;
 }
 
+#singularity-katana-panel-root .skp-main-pane,
+#singularity-katana-panel-root .skp-debug-pane {
+  padding: 16px;
+}
+
+#singularity-katana-panel-root .skp-debug-pane {
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+#singularity-katana-panel-root .skp-debug-title {
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#singularity-katana-panel-root .skp-debug-log {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 360px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.74);
+}
+
 #singularity-katana-panel-root .skp-verified-view {
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
 }
 
 #singularity-katana-panel-root .skp-logo {
   display: block;
-  width: 172px;
+  width: 144px;
   max-width: 100%;
   height: auto;
 }
 
 #singularity-katana-panel-root .skp-verified-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
-  color: #1f2933;
-}
-
-#singularity-katana-panel-root .skp-verified-view .skp-danger {
-  align-self: center;
+  color: #f5f5f5;
 }
 
 #singularity-katana-panel-root label span {
   font-size: 12px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 #singularity-katana-panel-root input {
-  border: 1px solid #c5d0db;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  padding: 12px 14px;
-  background: #ffffff;
-  color: #1f2933;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f5f5;
 }
 
 #singularity-katana-panel-root input:focus {
-  outline: 2px solid rgba(196, 93, 36, 0.22);
+  outline: 2px solid rgba(255, 255, 255, 0.16);
   outline-offset: 1px;
-  border-color: #c45d24;
+  border-color: rgba(255, 255, 255, 0.28);
 }
 
 #singularity-katana-panel-root .skp-secret-field {
@@ -154,55 +194,63 @@
 
 #singularity-katana-panel-root .skp-reveal {
   padding: 0 12px;
-  color: #364152;
-  background: #f8fafc;
-  border: 1px solid #c5d0db;
+  color: #f5f5f5;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   white-space: nowrap;
 }
 
+#singularity-katana-panel-root .skp-header-actions,
+#singularity-katana-panel-root .skp-status-row {
+  gap: 10px;
+}
+
 #singularity-katana-panel-root button {
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
   cursor: pointer;
   font-weight: 700;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+  color: #f5f5f5;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#singularity-katana-panel-root .skp-window-toggle {
+  min-width: 36px;
+  padding: 6px 10px;
 }
 
 #singularity-katana-panel-root .skp-primary {
-  padding: 12px 16px;
-  color: #ffffff;
-  background: #c45d24;
-  border-color: #c45d24;
+  padding: 10px 14px;
+  background: #f5f5f5;
+  border-color: #f5f5f5;
+  color: #111111;
 }
 
 #singularity-katana-panel-root .skp-ghost {
   padding: 10px 14px;
-  color: #364152;
-  background: #ffffff;
-  border-color: #c5d0db;
 }
 
 #singularity-katana-panel-root .skp-danger {
   padding: 10px 14px;
-  color: #9b1c1c;
-  background: #fff5f5;
-  border-color: #f3c4c4;
+  color: #ffb0b0;
+  background: rgba(255, 84, 84, 0.08);
+  border-color: rgba(255, 84, 84, 0.24);
 }
 
 #singularity-katana-panel-root button:hover {
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 #singularity-katana-panel-root .skp-primary:hover {
-  background: #a64d1d;
+  background: #d9d9d9;
 }
 
 #singularity-katana-panel-root .skp-danger:hover {
-  background: #fde8e8;
+  background: rgba(255, 84, 84, 0.14);
 }
 
 #singularity-katana-panel-root .skp-grid {
-  margin-top: 16px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
@@ -211,19 +259,21 @@
 #singularity-katana-panel-root .skp-card,
 #singularity-katana-panel-root .skp-detail-card {
   padding: 14px;
-  background: #f8fafc;
-  border: 1px solid #d7dee7;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
 }
 
 #singularity-katana-panel-root .skp-card-label {
-  color: #52606d;
+  color: rgba(255, 255, 255, 0.6);
   font-size: 12px;
   margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 #singularity-katana-panel-root strong {
-  font-size: 18px;
+  font-size: 17px;
 }
 
 #singularity-katana-panel-root dl,
@@ -236,7 +286,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 8px 0;
-  border-bottom: 1px solid #d7dee7;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 #singularity-katana-panel-root dl div:last-child {
@@ -245,9 +295,17 @@
 
 @media (max-width: 960px) {
   #singularity-katana-panel-host {
-    top: auto;
     right: 16px;
     bottom: 16px;
-    width: min(360px, calc(100vw - 32px));
+    width: min(520px, calc(100vw - 32px));
+  }
+
+  #singularity-katana-panel-root .skp-body {
+    grid-template-columns: 1fr;
+  }
+
+  #singularity-katana-panel-root .skp-debug-pane {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
   }
 }
