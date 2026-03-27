@@ -6,6 +6,7 @@
   "permissions": [
     "storage",
     "https://factory.katanamrp.com/salesorder/*",
+    "https://botanaway.method.me/apps/*",
     "https://singularitysalesplatform.com/*"
   ],
   "background": {
@@ -16,7 +17,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://factory.katanamrp.com/salesorder/*"
+        "https://factory.katanamrp.com/salesorder/*",
+        "https://botanaway.method.me/apps/*"
       ],
       "js": [
         "content.js"

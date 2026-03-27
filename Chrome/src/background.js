@@ -359,6 +359,51 @@ async function fetchPanelData(pageUrl, orderNumber = "") {
   };
 }
 
+function normalizeSku(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+async function fetchInventoryBySku(itemSku) {
+  const { credentials } = await getStoredCredentials();
+
+  if (!credentials) {
+    return {
+      ok: false,
+      reason: "missing_credentials"
+    };
+  }
+
+  const normalizedSku = normalizeSku(itemSku);
+
+  if (!normalizedSku) {
+    return {
+      ok: true,
+      inventory: null
+    };
+  }
+
+  assertConfiguredEndpoint(API_CONFIG.inventoryUrl, "Inventory");
+  const headers = buildAuthHeaders(credentials);
+  const itemUrl = buildUrlWithParams(API_CONFIG.inventoryUrl, {
+    itemsku: itemSku
+  });
+  const inventoryPayload = await fetchJson(
+    itemUrl,
+    {
+      method: "GET",
+      headers
+    }
+  );
+  const inventoryRecord = inventoryPayload?.item ?? null;
+
+  return {
+    ok: true,
+    inventory: inventoryRecord && normalizeSku(inventoryRecord?.itemsku) === normalizedSku
+      ? inventoryRecord
+      : null
+  };
+}
+
 runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
   const action = message?.action;
 
@@ -388,6 +433,11 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
           message.payload?.orderNumber ?? ""
         );
         sendResponse(panelData);
+        break;
+      }
+      case "fetchInventoryBySku": {
+        const inventoryData = await fetchInventoryBySku(message.payload?.itemSku ?? "");
+        sendResponse(inventoryData);
         break;
       }
       case "clearCredentials": {

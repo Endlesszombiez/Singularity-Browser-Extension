@@ -1,4 +1,5 @@
 const TARGET_URL_PREFIX = "https://factory.katanamrp.com/salesorder/";
+const METHOD_URL_PREFIX = "https://botanaway.method.me/apps/";
 const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
 const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storage.local;
 const PANEL_ID = "singularity-katana-panel-root";
@@ -6,18 +7,131 @@ const PANEL_HOST_ID = "singularity-katana-panel-host";
 const PANEL_POSITION_KEY = "panelPosition";
 const ORDER_NUMBER_WAIT_MS = 10000;
 const ORDER_NUMBER_POLL_MS = 5000;
+const METHOD_ROW_LIMIT = 50;
+const METHOD_SCAN_DEBOUNCE_MS = 500;
+const METHOD_ROW_PREFIXES = ["InvoiceLineItemsEditable", "EstimateLineDataTable"];
+const METHOD_LOW_STOCK_CLASS = "skp-method-low-stock";
+const METHOD_IN_STOCK_CLASS = "skp-method-in-stock";
+const METHOD_CLOSE_STOCK_CLASS = "skp-method-close-stock";
+const METHOD_DEBUG_HOST_ID = "skp-method-debug-host";
+const METHOD_DEBUG_LOG_ID = "skp-method-debug-log";
+const METHOD_DEBUG_TOGGLE_ID = "skp-method-debug-toggle";
+const METHOD_DEBUG_MAX_ENTRIES = 80;
 
 let currentUrl = window.location.href;
 let elements = null;
 let dragState = null;
 let lastVerifiedAt = null;
+let methodScanTimeoutId = null;
+let methodDebugEntries = [];
+let methodScanInProgress = false;
+let methodScanQueued = false;
+let methodDebugMinimized = false;
 
 function isTargetUrl(url) {
   return url.startsWith(TARGET_URL_PREFIX);
 }
 
+function isMethodUrl(url) {
+  return url.startsWith(METHOD_URL_PREFIX);
+}
+
 function sendRuntimeMessage(message) {
   return runtimeApi.sendMessage(message);
+}
+
+function ensureMethodDebugWindow() {
+  let host = document.getElementById(METHOD_DEBUG_HOST_ID);
+
+  if (host) {
+    return host;
+  }
+
+  host = document.createElement("aside");
+  host.id = METHOD_DEBUG_HOST_ID;
+  host.style.position = "fixed";
+  host.style.right = "12px";
+  host.style.bottom = "12px";
+  host.style.width = "360px";
+  host.style.maxHeight = "45vh";
+  host.style.zIndex = "2147483647";
+  host.style.background = "rgba(18, 18, 18, 0.94)";
+  host.style.color = "#f5f5f5";
+  host.style.border = "1px solid rgba(255, 255, 255, 0.15)";
+  host.style.borderRadius = "10px";
+  host.style.boxShadow = "0 12px 30px rgba(0, 0, 0, 0.35)";
+  host.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  host.style.fontSize = "12px";
+  host.style.lineHeight = "1.4";
+  host.style.overflow = "hidden";
+  host.innerHTML = `
+    <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.12);font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <span>Singularity Debug</span>
+      <button id="${METHOD_DEBUG_TOGGLE_ID}" type="button" style="border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.08);color:#f5f5f5;border-radius:6px;padding:2px 8px;cursor:pointer;">_</button>
+    </div>
+    <div id="${METHOD_DEBUG_LOG_ID}" style="padding:8px 10px;overflow:auto;max-height:calc(45vh - 36px);white-space:pre-wrap;"></div>
+  `;
+
+  document.body.appendChild(host);
+  const toggleButton = host.querySelector("#" + METHOD_DEBUG_TOGGLE_ID);
+  if (toggleButton) {
+    toggleButton.addEventListener("click", function () {
+      methodDebugMinimized = !methodDebugMinimized;
+      updateMethodDebugWindow();
+    });
+  }
+  updateMethodDebugWindow();
+  return host;
+}
+
+function updateMethodDebugWindow() {
+  const host = document.getElementById(METHOD_DEBUG_HOST_ID);
+  const logElement = document.getElementById(METHOD_DEBUG_LOG_ID);
+  const toggleButton = document.getElementById(METHOD_DEBUG_TOGGLE_ID);
+
+  if (!host || !logElement || !toggleButton) {
+    return;
+  }
+
+  host.style.width = methodDebugMinimized ? "180px" : "360px";
+  logElement.style.display = methodDebugMinimized ? "none" : "block";
+  toggleButton.textContent = methodDebugMinimized ? "+" : "_";
+  toggleButton.title = methodDebugMinimized ? "Expand debug window" : "Minimize debug window";
+}
+
+function pushMethodDebug(message, detail) {
+  if (!isMethodUrl(window.location.href)) {
+    return;
+  }
+
+  ensureMethodDebugWindow();
+  const timestamp = new Date().toLocaleTimeString();
+  const suffix = detail ? ": " + detail : "";
+  const line = "[" + timestamp + "] " + message + suffix;
+
+  methodDebugEntries.push(line);
+
+  if (methodDebugEntries.length > METHOD_DEBUG_MAX_ENTRIES) {
+    methodDebugEntries = methodDebugEntries.slice(-METHOD_DEBUG_MAX_ENTRIES);
+  }
+
+  const logElement = document.getElementById(METHOD_DEBUG_LOG_ID);
+
+  if (logElement) {
+    logElement.textContent = methodDebugEntries.join("\n");
+    logElement.scrollTop = logElement.scrollHeight;
+  }
+}
+
+function isMethodInternalNode(node) {
+  if (!(node instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(
+    node.closest("#" + METHOD_DEBUG_HOST_ID) ||
+    node.closest("#skp-method-highlight-styles")
+  );
 }
 
 async function getStoredPanelPosition() {
@@ -516,6 +630,222 @@ async function loadPanelData({ preserveView = false } = {}) {
   }
 }
 
+function ensureMethodHighlightStyles() {
+  if (document.getElementById("skp-method-highlight-styles")) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.id = "skp-method-highlight-styles";
+  style.textContent = `
+    .${METHOD_LOW_STOCK_CLASS} {
+      background-color: rgba(255, 0, 0, 0.08) !important;
+    }
+
+    .${METHOD_IN_STOCK_CLASS} {
+      background-color: rgba(0, 128, 0, 0.08) !important;
+    }
+
+    .${METHOD_CLOSE_STOCK_CLASS} {
+      background-color: rgba(255, 204, 0, 0.18) !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function getMethodRowId(rowPrefix, rowIndex) {
+  return `${rowPrefix}-ROW-${rowIndex}`;
+}
+
+function getMethodElementId(rowPrefix, rowIndex, suffix) {
+  return `${getMethodRowId(rowPrefix, rowIndex)}-${suffix}`;
+}
+
+function getTextInputValueById(id) {
+  const element = document.getElementById(id);
+
+  if (!element) {
+    return "";
+  }
+
+  if ("value" in element) {
+    return extractMeaningfulText(element.value);
+  }
+
+  return extractMeaningfulText(element.textContent);
+}
+
+function getFirstTextInputValueByIds(ids) {
+  for (const id of ids) {
+    const value = getTextInputValueById(id);
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function parseNumericValue(value) {
+  const normalized = String(value ?? "").replace(/,/g, "").trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clearMethodRowHighlight(rowElement) {
+  rowElement.classList.remove(METHOD_LOW_STOCK_CLASS, METHOD_IN_STOCK_CLASS, METHOD_CLOSE_STOCK_CLASS);
+}
+
+function applyMethodRowHighlight(rowElement, highlightClass) {
+  rowElement.classList.remove(METHOD_LOW_STOCK_CLASS, METHOD_IN_STOCK_CLASS, METHOD_CLOSE_STOCK_CLASS);
+  rowElement.classList.add(highlightClass);
+}
+
+async function evaluateMethodRow(rowPrefix, rowIndex) {
+  const rowElement = document.getElementById(getMethodRowId(rowPrefix, rowIndex));
+
+  if (!rowElement) {
+    return;
+  }
+
+  clearMethodRowHighlight(rowElement);
+
+  const itemSku = getTextInputValueById(getMethodElementId(rowPrefix, rowIndex, "3"));
+
+  if (!itemSku) {
+    pushMethodDebug(rowPrefix + " row " + rowIndex, "No SKU found");
+    return;
+  }
+
+  pushMethodDebug(rowPrefix + " row " + rowIndex, "SKU " + itemSku);
+
+  const inventoryResult = await sendRuntimeMessage({
+    action: "fetchInventoryBySku",
+    payload: {
+      itemSku: itemSku
+    }
+  });
+
+  if (!inventoryResult?.ok) {
+    pushMethodDebug(rowPrefix + " row " + rowIndex, inventoryResult?.error ?? inventoryResult?.reason ?? "Inventory lookup failed");
+    return;
+  }
+
+  if (!inventoryResult.inventory) {
+    pushMethodDebug(rowPrefix + " row " + rowIndex, "No inventory match for SKU " + itemSku);
+    return;
+  }
+
+  pushMethodDebug(
+    rowPrefix + " row " + rowIndex,
+    "Inventory matched itemsku=" + String(inventoryResult.inventory.itemsku ?? "") +
+      " availableqty=" + String(inventoryResult.inventory.availableqty ?? "")
+  );
+
+  const quantityRawValue = getFirstTextInputValueByIds([
+    getMethodElementId(rowPrefix, rowIndex, "5-Quantity-Input"),
+    getMethodElementId(rowPrefix, rowIndex, "5-Quantity-TextInput"),
+    getMethodElementId(rowPrefix, rowIndex, "5")
+  ]);
+  const quantityValue = parseNumericValue(quantityRawValue);
+  const availableQty = parseNumericValue(inventoryResult.inventory.availableqty);
+
+  if (quantityValue === null || availableQty === null) {
+    pushMethodDebug(
+      rowPrefix + " row " + rowIndex,
+      "Non-numeric quantity check. quantityRaw=" + (quantityRawValue || "empty") +
+        " quantity=" + String(quantityValue) + " available=" + String(availableQty)
+    );
+    return;
+  }
+
+  if (quantityValue > availableQty) {
+    applyMethodRowHighlight(rowElement, METHOD_LOW_STOCK_CLASS);
+    pushMethodDebug(rowPrefix + " row " + rowIndex, "LOW STOCK quantity=" + quantityValue + " available=" + availableQty);
+    return;
+  }
+
+  if (availableQty - quantityValue <= 5) {
+    applyMethodRowHighlight(rowElement, METHOD_CLOSE_STOCK_CLASS);
+    pushMethodDebug(rowPrefix + " row " + rowIndex, "CLOSE STOCK quantity=" + quantityValue + " available=" + availableQty);
+    return;
+  }
+
+  if (quantityValue < availableQty) {
+    applyMethodRowHighlight(rowElement, METHOD_IN_STOCK_CLASS);
+    pushMethodDebug(rowPrefix + " row " + rowIndex, "IN STOCK quantity=" + quantityValue + " available=" + availableQty);
+    return;
+  }
+
+  pushMethodDebug(rowPrefix + " row " + rowIndex, "EVEN quantity=" + quantityValue + " available=" + availableQty);
+}
+
+async function scanMethodInvoiceRows() {
+  if (methodScanInProgress) {
+    methodScanQueued = true;
+    pushMethodDebug("Scan deferred", "A scan is already running");
+    return;
+  }
+
+  methodScanInProgress = true;
+  const authState = await sendRuntimeMessage({ action: "getAuthState" });
+
+  if (!authState?.isVerified) {
+    pushMethodDebug("Scan skipped", "No verified credentials");
+    methodScanInProgress = false;
+    return;
+  }
+
+  ensureMethodHighlightStyles();
+  ensureMethodDebugWindow();
+  pushMethodDebug("Scan started", "Checking rows 0-" + METHOD_ROW_LIMIT);
+
+  try {
+    const tasks = [];
+
+    for (const rowPrefix of METHOD_ROW_PREFIXES) {
+      for (let rowIndex = 0; rowIndex <= METHOD_ROW_LIMIT; rowIndex += 1) {
+        tasks.push(evaluateMethodRow(rowPrefix, rowIndex));
+      }
+    }
+
+    await Promise.all(tasks);
+    pushMethodDebug("Scan finished");
+  } finally {
+    methodScanInProgress = false;
+
+    if (methodScanQueued) {
+      methodScanQueued = false;
+      scheduleMethodRowScan();
+    }
+  }
+}
+
+function scheduleMethodRowScan() {
+  window.clearTimeout(methodScanTimeoutId);
+  pushMethodDebug("Scan scheduled", METHOD_SCAN_DEBOUNCE_MS + "ms debounce");
+  methodScanTimeoutId = window.setTimeout(function () {
+    scanMethodInvoiceRows().catch(function (error) {
+      pushMethodDebug("Scan failed", error.message);
+      console.error("Method inventory scan failed.", error);
+    });
+  }, METHOD_SCAN_DEBOUNCE_MS);
+}
+
+function bootstrapMethodMode() {
+  if (!isMethodUrl(window.location.href)) {
+    return;
+  }
+
+  scheduleMethodRowScan();
+}
+
 async function bootstrapPanel() {
   if (!isTargetUrl(window.location.href)) {
     return;
@@ -549,9 +879,12 @@ function watchUrlChanges() {
 
     if (isTargetUrl(currentUrl)) {
       await bootstrapPanel();
+    } else if (isMethodUrl(currentUrl)) {
+      bootstrapMethodMode();
     } else if (elements?.host) {
       elements.host.remove();
       elements = null;
+      window.clearTimeout(methodScanTimeoutId);
     }
   });
 
@@ -562,7 +895,41 @@ function watchUrlChanges() {
 }
 
 bootstrapPanel();
+bootstrapMethodMode();
 watchUrlChanges();
+
+const methodDomObserver = new MutationObserver(function (mutations) {
+  if (!isMethodUrl(window.location.href)) {
+    return;
+  }
+
+  const shouldScan = mutations.some(function (mutation) {
+    if (mutation.type !== "childList") {
+      return false;
+    }
+
+    if (isMethodInternalNode(mutation.target)) {
+      return false;
+    }
+
+    const addedNodes = Array.from(mutation.addedNodes ?? []);
+    const removedNodes = Array.from(mutation.removedNodes ?? []);
+    return addedNodes.concat(removedNodes).some(function (node) {
+      return !isMethodInternalNode(node);
+    });
+  });
+
+  if (!shouldScan) {
+    return;
+  }
+
+  scheduleMethodRowScan();
+});
+
+methodDomObserver.observe(document.body || document.documentElement, {
+  childList: true,
+  subtree: true
+});
 
 window.addEventListener("resize", async function () {
   if (!elements?.host) {

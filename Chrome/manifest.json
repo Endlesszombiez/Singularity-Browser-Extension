@@ -8,6 +8,7 @@
   ],
   "host_permissions": [
     "https://factory.katanamrp.com/salesorder/*",
+    "https://botanaway.method.me/apps/*",
     "https://singularitysalesplatform.com/*"
   ],
   "background": {
@@ -17,7 +18,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://factory.katanamrp.com/salesorder/*"
+        "https://factory.katanamrp.com/salesorder/*",
+        "https://botanaway.method.me/apps/*"
       ],
       "js": [
         "src/content.js"
@@ -34,7 +36,8 @@
         "images/CompanyLogo.png"
       ],
       "matches": [
-        "https://factory.katanamrp.com/*"
+        "https://factory.katanamrp.com/*",
+        "https://botanaway.method.me/*"
       ]
     }
   ],
