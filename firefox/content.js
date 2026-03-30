@@ -16,12 +16,15 @@ const METHOD_DEBUG_HOST_ID = "skp-method-debug-host";
 const METHOD_DEBUG_LOG_ID = "skp-method-debug-log";
 const METHOD_DEBUG_TOGGLE_ID = "skp-method-debug-toggle";
 const METHOD_DEBUG_MAX_ENTRIES = 80;
+const DEBUG_PAYLOAD_MAX_LENGTH = 4000;
 
 let currentUrl = window.location.href;
 let elements = null;
 let lastVerifiedAt = null;
 let katanaDebugEntries = [];
 let isKatanaPanelMinimized = false;
+let manualOrderNumberOverride = "";
+let isManualOrderCollapsed = true;
 let methodScanTimeoutId = null;
 let methodDebugEntries = [];
 let methodScanInProgress = false;
@@ -55,10 +58,10 @@ function ensureMethodDebugWindow() {
   host.style.width = "360px";
   host.style.maxHeight = "45vh";
   host.style.zIndex = "2147483647";
-  host.style.background = "rgba(18, 18, 18, 0.94)";
+  host.style.background = "rgba(18, 18, 18, 0.75)";
   host.style.color = "#f5f5f5";
   host.style.border = "1px solid rgba(255, 255, 255, 0.15)";
-  host.style.borderRadius = "10px";
+  host.style.borderRadius = "5px";
   host.style.boxShadow = "0 12px 30px rgba(0, 0, 0, 0.35)";
   host.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
   host.style.fontSize = "12px";
@@ -121,6 +124,28 @@ function pushMethodDebug(message, detail) {
     logElement.textContent = methodDebugEntries.join("\n");
     logElement.scrollTop = logElement.scrollHeight;
   }
+}
+
+function formatDebugPayload(label, payload) {
+  if (payload === undefined) {
+    return label + ": undefined";
+  }
+
+  let serialized = "";
+
+  try {
+    serialized = typeof payload === "string"
+      ? payload
+      : JSON.stringify(payload, null, 2);
+  } catch {
+    serialized = String(payload);
+  }
+
+  if (serialized.length > DEBUG_PAYLOAD_MAX_LENGTH) {
+    serialized = serialized.slice(0, DEBUG_PAYLOAD_MAX_LENGTH) + "\n... [truncated]";
+  }
+
+  return label + ":\n" + serialized;
 }
 
 function isMethodInternalNode(node) {
@@ -269,6 +294,27 @@ function createPanel() {
               </section>
             </div>
           </section>
+          <section class="skp-manual-order" id="skp-manual-order" hidden>
+            <div class="skp-manual-order-header">
+              <div class="skp-manual-order-heading">
+                <h3>Manual Sales Order Lookup</h3>
+                <p class="skp-meta" id="skp-manual-order-status">Katana order auto-detection is active.</p>
+              </div>
+              <button type="button" class="skp-ghost skp-manual-order-toggle" data-action="toggle-manual-order" aria-expanded="false">Expand</button>
+            </div>
+            <div class="skp-manual-order-body" id="skp-manual-order-body" hidden>
+              <form class="skp-form skp-inline-form" id="skp-manual-order-form">
+                <label>
+                  <span>Sales Order Number</span>
+                  <input type="text" name="manualOrderNumber" autocomplete="off" spellcheck="false" placeholder="Enter Sales Order number" />
+                </label>
+                <div class="skp-inline-actions">
+                  <button type="submit" class="skp-primary">Search Order</button>
+                  <button type="button" class="skp-ghost" data-action="clear-manual-order">Use Katana Order</button>
+                </div>
+              </form>
+            </div>
+          </section>
         </section>
         <aside class="skp-debug-pane">
           <div class="skp-debug-title">Debug Trace</div>
@@ -296,6 +342,12 @@ function createPanel() {
     verifiedMeta: root.querySelector("#skp-verified-meta"),
     verifiedStatus: root.querySelector("#skp-verified-status"),
     refreshStatus: root.querySelector("#skp-refresh-status"),
+    manualOrderSection: root.querySelector("#skp-manual-order"),
+    manualOrderBody: root.querySelector("#skp-manual-order-body"),
+    manualOrderForm: root.querySelector("#skp-manual-order-form"),
+    manualOrderInput: root.querySelector('input[name="manualOrderNumber"]'),
+    manualOrderStatus: root.querySelector("#skp-manual-order-status"),
+    manualOrderToggle: root.querySelector('[data-action="toggle-manual-order"]'),
     companyName: root.querySelector("#skp-company-name"),
     contactName: root.querySelector("#skp-contact-name"),
     orderTotal: root.querySelector("#skp-order-total"),
@@ -323,6 +375,21 @@ function createPanel() {
     if (action === "refresh-data") {
       pushKatanaDebug("Refresh requested");
       await loadPanelData({ preserveView: true });
+      return;
+    }
+
+    if (action === "toggle-manual-order") {
+      setManualOrderCollapsedState(!isManualOrderCollapsed);
+      return;
+    }
+
+    if (action === "clear-manual-order") {
+      manualOrderNumberOverride = "";
+      elements.manualOrderForm.reset();
+      updateManualOrderStatus("Katana order auto-detection is active.");
+      pushKatanaDebug("Manual order override cleared");
+      await loadPanelData({ preserveView: true });
+      return;
     }
 
     if (action === "remove-api-key") {
@@ -353,6 +420,23 @@ function createPanel() {
     elements.revealSecretButton.addEventListener(eventName, function () {
       setSecretVisibility(false);
     });
+  });
+
+  elements.manualOrderForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+
+    const orderNumber = extractMeaningfulText(elements.manualOrderInput.value);
+
+    if (!isLikelyOrderNumber(orderNumber)) {
+      updateManualOrderStatus("Enter a valid Sales Order number to search manually.");
+      return;
+    }
+
+    manualOrderNumberOverride = orderNumber;
+    elements.manualOrderInput.value = orderNumber;
+    updateManualOrderStatus("Manual Sales Order search active: " + orderNumber + ".");
+    pushKatanaDebug("Manual order override set", orderNumber);
+    await loadPanelData({ preserveView: true });
   });
 
   elements.authForm.addEventListener("submit", async function (event) {
@@ -392,10 +476,25 @@ function createPanel() {
   return elements;
 }
 
+function setManualOrderCollapsedState(isCollapsed) {
+  isManualOrderCollapsed = Boolean(isCollapsed);
+
+  if (!elements?.manualOrderBody || !elements?.manualOrderToggle) {
+    return;
+  }
+
+  elements.manualOrderBody.hidden = isManualOrderCollapsed;
+  elements.manualOrderSection.dataset.collapsed = String(isManualOrderCollapsed);
+  elements.manualOrderToggle.textContent = isManualOrderCollapsed ? "Expand" : "Collapse";
+  elements.manualOrderToggle.setAttribute("aria-expanded", String(!isManualOrderCollapsed));
+}
+
 function setView(viewName) {
   elements.authView.hidden = viewName !== "auth";
   elements.verifiedView.hidden = viewName !== "verified";
   elements.dashboardView.hidden = viewName !== "dashboard";
+  elements.manualOrderSection.hidden = viewName === "auth";
+  setManualOrderCollapsedState(isManualOrderCollapsed);
 }
 
 function showAuthView(message) {
@@ -442,7 +541,21 @@ function renderPanelData(result) {
   elements.orderTrackingNumber.textContent = String(result.salesOrder.trackingNumber);
   elements.orderShipMethod.textContent = String(result.salesOrder.shipMethod);
   elements.refreshStatus.textContent = `Last refreshed ${formatTimestamp(result.meta.refreshedAt)}. Sales order ${result.meta.salesOrderId || "unknown"}.`;
+  elements.manualOrderInput.value = manualOrderNumberOverride;
+  updateManualOrderStatus(
+    manualOrderNumberOverride
+      ? "Manual Sales Order search active: " + manualOrderNumberOverride + "."
+      : "Katana order auto-detection is active."
+  );
   pushKatanaDebug("Panel data rendered", elements.refreshStatus.textContent);
+}
+
+function updateManualOrderStatus(message) {
+  if (!elements?.manualOrderStatus) {
+    return;
+  }
+
+  elements.manualOrderStatus.textContent = message;
 }
 
 function extractMeaningfulText(value) {
@@ -574,8 +687,27 @@ async function loadPanelData({ preserveView = false } = {}) {
   }
 
   try {
-    const orderNumber = await getOrderNumberWithDelay();
-    pushKatanaDebug("Order number resolved", orderNumber || "No order number found");
+    const orderNumber = manualOrderNumberOverride || await getOrderNumberWithDelay();
+
+    if (manualOrderNumberOverride) {
+      elements.manualOrderInput.value = manualOrderNumberOverride;
+      updateManualOrderStatus("Manual Sales Order search active: " + manualOrderNumberOverride + ".");
+      pushKatanaDebug("Manual order override", manualOrderNumberOverride);
+    } else if (!orderNumber) {
+      updateManualOrderStatus("No Sales Order number found on the Katana page. Enter one here to search manually.");
+      pushKatanaDebug("Order number resolved", "No order number found");
+      elements.refreshStatus.textContent = "Automatic lookup paused. Enter a Sales Order number to search manually.";
+
+      if (lastVerifiedAt) {
+        showVerifiedSplash(lastVerifiedAt, "No Sales Order number found on the Katana page. Enter one below to search manually.");
+      }
+
+      return;
+    } else {
+      updateManualOrderStatus("Katana order detected: " + orderNumber + ". You can override it below if needed.");
+      pushKatanaDebug("Order number resolved", orderNumber);
+    }
+
     elements.refreshStatus.textContent = "Refreshing data from Singularity endpoints...";
     pushKatanaDebug("Fetching panel data", "Refreshing data from Singularity endpoints");
     const result = await sendRuntimeMessage({
@@ -590,10 +722,21 @@ async function loadPanelData({ preserveView = false } = {}) {
       throw new Error(result.error ?? "Unable to load panel data.");
     }
 
+    if (result.apiPayloads?.salesOrder !== undefined) {
+      pushKatanaDebug("Sales order API payload received", formatDebugPayload("salesOrder", result.apiPayloads.salesOrder));
+    }
+
+    if (result.apiPayloads?.customer !== undefined) {
+      pushKatanaDebug("Customer API payload received", formatDebugPayload("customer", result.apiPayloads.customer));
+    }
+
     setView("dashboard");
     renderPanelData(result);
   } catch (error) {
     pushKatanaDebug("Load failed", error.message);
+    if (!manualOrderNumberOverride) {
+      updateManualOrderStatus("Automatic lookup did not finish. Enter a Sales Order number to search manually.");
+    }
     if (lastVerifiedAt) {
       showVerifiedSplash(lastVerifiedAt, error.message);
       return;
@@ -708,6 +851,13 @@ async function evaluateMethodRow(rowPrefix, rowIndex) {
   if (!inventoryResult?.ok) {
     pushMethodDebug(rowPrefix + " row " + rowIndex, inventoryResult?.error ?? inventoryResult?.reason ?? "Inventory lookup failed");
     return;
+  }
+
+  if (inventoryResult.apiPayload !== undefined) {
+    pushMethodDebug(
+      rowPrefix + " row " + rowIndex,
+      formatDebugPayload("inventory", inventoryResult.apiPayload)
+    );
   }
 
   if (!inventoryResult.inventory) {

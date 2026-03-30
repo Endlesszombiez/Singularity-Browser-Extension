@@ -174,6 +174,20 @@ function buildAuthHeaders(credentials) {
   };
 }
 
+function getErrorDetail(payload) {
+  if (typeof payload !== "string") {
+    return payload?.error ?? payload?.message ?? "";
+  }
+
+  const trimmed = payload.trim();
+
+  if (!trimmed || /^<!doctype html/i.test(trimmed) || /<html[\s>]/i.test(trimmed)) {
+    return "";
+  }
+
+  return trimmed;
+}
+
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
   const responseText = await response.text();
@@ -188,9 +202,7 @@ async function fetchJson(url, options) {
   }
 
   if (!response.ok) {
-    const detail = typeof payload === "string"
-      ? payload
-      : payload?.error ?? payload?.message ?? "";
+    const detail = getErrorDetail(payload);
     const suffix = detail ? `: ${detail}` : ".";
     const error = new Error(`Request failed for ${url} with status ${response.status}${suffix}`);
     error.status = response.status;
@@ -347,39 +359,83 @@ function summarizeSalesOrder(order = {}) {
   };
 }
 
-async function fetchSalesOrderRecord(salesOrderId, orderNumber, headers) {
-  if (orderNumber) {
-    const externalIdRows = await fetchFilteredRows(
-      API_CONFIG.salesOrdersUrl,
-      {
-        external_id: orderNumber,
-        sort: "updated_at",
-        dir: "desc",
-        limit: 1
-      },
-      headers
-    );
+function clonePayload(payload) {
+  if (payload === undefined) {
+    return null;
+  }
 
-    if (externalIdRows[0]) {
-      return externalIdRows[0];
+  try {
+    return JSON.parse(JSON.stringify(payload));
+  } catch {
+    return payload;
+  }
+}
+
+async function fetchSalesOrderRecord(salesOrderId, orderNumber, headers) {
+  let lookupError = null;
+
+  if (orderNumber) {
+    try {
+      const externalIdPayload = await fetchJson(
+        buildUrlWithParams(API_CONFIG.salesOrdersUrl, {
+          external_id: orderNumber,
+          sort: "updated_at",
+          dir: "desc",
+          limit: 1
+        }),
+        {
+          method: "GET",
+          headers
+        }
+      );
+      const externalIdRows = normalizeQueryRows(externalIdPayload);
+
+      if (externalIdRows[0]) {
+        return {
+          record: externalIdRows[0],
+          payload: clonePayload(externalIdPayload)
+        };
+      }
+    } catch (error) {
+      lookupError = error;
     }
   }
 
   if (salesOrderId) {
-    const katanaRows = await fetchFilteredRows(
-      API_CONFIG.salesOrdersUrl,
-      {
-        katana_id: salesOrderId,
-        sort: "updated_at",
-        dir: "desc",
-        limit: 1
-      },
-      headers
-    );
+    try {
+      const katanaPayload = await fetchJson(
+        buildUrlWithParams(API_CONFIG.salesOrdersUrl, {
+          katana_id: salesOrderId,
+          sort: "updated_at",
+          dir: "desc",
+          limit: 1
+        }),
+        {
+          method: "GET",
+          headers
+        }
+      );
+      const katanaRows = normalizeQueryRows(katanaPayload);
 
-    if (katanaRows[0]) {
-      return katanaRows[0];
+      if (katanaRows[0]) {
+        const katanaRecord = katanaRows[0];
+        const normalizedExternalId = String(katanaRecord.external_id ?? "").trim().toLowerCase();
+        const normalizedOrderNumber = String(orderNumber ?? "").trim().toLowerCase();
+
+        if (!normalizedOrderNumber || !normalizedExternalId || normalizedExternalId === normalizedOrderNumber) {
+          return {
+            record: katanaRecord,
+            payload: clonePayload(katanaPayload)
+          };
+        }
+      }
+    } catch (error) {
+      lookupError = lookupError ?? error;
     }
+  }
+
+  if (lookupError) {
+    throw lookupError;
   }
 
   throw new Error(`No sales order matched Katana ID "${salesOrderId || "N/A"}" or order number "${orderNumber || "N/A"}".`);
@@ -406,7 +462,10 @@ async function fetchCustomerRecord(customerToken, salesOrder, headers) {
   const params = buildCustomerLookupParams(customerToken, salesOrder);
 
   if (!params) {
-    return null;
+    return {
+      record: null,
+      payload: null
+    };
   }
 
   const payload = await fetchJson(
@@ -417,7 +476,10 @@ async function fetchCustomerRecord(customerToken, salesOrder, headers) {
     }
   );
   const rows = normalizeQueryRows(payload);
-  return rows[0] ?? null;
+  return {
+    record: rows[0] ?? null,
+    payload: clonePayload(payload)
+  };
 }
 
 async function fetchPanelData(pageUrl, orderNumber = "") {
@@ -436,8 +498,10 @@ async function fetchPanelData(pageUrl, orderNumber = "") {
   const salesOrderId = url.pathname.split("/").filter(Boolean).pop() ?? "";
   const customerId = url.searchParams.get("customerId") ?? "";
   const headers = buildAuthHeaders(credentialsState.credentials);
-  const salesOrderRecord = await fetchSalesOrderRecord(salesOrderId, orderNumber, headers);
-  const customerRecord = await fetchCustomerRecord(customerId, salesOrderRecord, headers);
+  const salesOrderResponse = await fetchSalesOrderRecord(salesOrderId, orderNumber, headers);
+  const salesOrderRecord = salesOrderResponse.record;
+  const customerResponse = await fetchCustomerRecord(customerId, salesOrderRecord, headers);
+  const customerRecord = customerResponse.record;
 
   return {
     ok: true,
@@ -445,6 +509,10 @@ async function fetchPanelData(pageUrl, orderNumber = "") {
       salesOrderId: salesOrderRecord?.katana_id ?? salesOrderId,
       customerId: salesOrderRecord?.customer_recordid ?? customerRecord?.recordid ?? customerId,
       refreshedAt: new Date().toISOString()
+    },
+    apiPayloads: {
+      salesOrder: salesOrderResponse.payload,
+      customer: customerResponse.payload
     },
     customer: summarizeCustomer(customerRecord ?? {}),
     salesOrder: summarizeSalesOrder(salesOrderRecord ?? {})
@@ -490,6 +558,7 @@ async function fetchInventoryBySku(itemSku) {
 
   return {
     ok: true,
+    apiPayload: clonePayload(inventoryPayload),
     inventory: inventoryRecord && normalizeSku(inventoryRecord?.itemsku) === normalizedSku
       ? inventoryRecord
       : null
