@@ -173,8 +173,12 @@ async function fetchFilteredRows(url, params, headers) {
   return normalizeQueryRows(payload);
 }
 
-function formatCurrencyFromCents(amountInCents, currency = "USD") {
-  if (typeof amountInCents !== "number") {
+function formatCurrencyAmount(amount, currency = "USD") {
+  const parsedAmount = typeof amount === "number"
+    ? amount
+    : Number.parseFloat(String(amount ?? "").replace(/,/g, "").trim());
+
+  if (!Number.isFinite(parsedAmount)) {
     return "N/A";
   }
 
@@ -182,9 +186,9 @@ function formatCurrencyFromCents(amountInCents, currency = "USD") {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency
-    }).format(amountInCents / 100);
+    }).format(parsedAmount);
   } catch {
-    return `${(amountInCents / 100).toFixed(2)} ${currency}`;
+    return `${parsedAmount.toFixed(2)} ${currency}`;
   }
 }
 
@@ -236,8 +240,8 @@ function summarizeSalesOrder(order = {}) {
   return {
     companyName: order.companyname ?? "Unknown company",
     contactName: order.fullname ?? "Unknown contact",
-    totalValue: formatCurrencyFromCents(order.total_cents, order.currency ?? "USD"),
-    shippingCost: formatCurrencyFromCents(order.shipping_cost_cents, order.currency ?? "USD"),
+    totalValue: formatCurrencyAmount(order.total_cents, order.currency ?? "USD"),
+    shippingCost: formatCurrencyAmount(order.shipping_cost_cents, order.currency ?? "USD"),
     status: order.status ?? "Unknown",
     externalId: order.external_id ?? String(order.id ?? "N/A"),
     customerEmail: order.customer_email ?? "N/A",

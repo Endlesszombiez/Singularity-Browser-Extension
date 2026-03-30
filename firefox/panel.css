@@ -1,9 +1,10 @@
 #singularity-katana-panel-host {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 12px;
   z-index: 2147483647;
-  width: min(920px, calc(100vw - 32px));
+  width: min(820px, calc(100vw - 20px));
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -13,10 +14,10 @@
 }
 
 #singularity-katana-panel-root .skp-shell {
-  background: rgba(18, 18, 18, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38);
+  background: #0f1113;
+  border: 1px solid rgba(220, 235, 220, 0.18);
+  border-radius: 4px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
   overflow: hidden;
 }
 
@@ -29,7 +30,7 @@
 #singularity-katana-panel-root .skp-detail-card dl {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 #singularity-katana-panel-root .skp-header,
@@ -40,17 +41,9 @@
 }
 
 #singularity-katana-panel-root .skp-header {
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-  padding: 12px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-#singularity-katana-panel-root .skp-shell.skp-dragging,
-#singularity-katana-panel-root .skp-shell.skp-dragging .skp-header {
-  cursor: grabbing;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(220, 235, 220, 0.16);
+  background: #121518;
 }
 
 #singularity-katana-panel-root .skp-shell.skp-minimized .skp-body {
@@ -68,7 +61,7 @@
 }
 
 #singularity-katana-panel-root .skp-inline-link {
-  color: #f5f5f5;
+  color: #d8e5d4;
   text-decoration: none;
 }
 
@@ -77,43 +70,43 @@
 }
 
 #singularity-katana-panel-root h2 {
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.1;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
 #singularity-katana-panel-root .skp-header-copy {
-  margin-top: 4px;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 12px;
-  line-height: 1.4;
+  margin-top: 2px;
+  color: rgba(176, 205, 176, 0.72);
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 #singularity-katana-panel-root h3 {
-  font-size: 13px;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 #singularity-katana-panel-root .skp-copy,
 #singularity-katana-panel-root .skp-meta,
 #singularity-katana-panel-root dt,
 #singularity-katana-panel-root dd {
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 #singularity-katana-panel-root .skp-copy,
 #singularity-katana-panel-root .skp-meta,
 #singularity-katana-panel-root dt {
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(196, 212, 196, 0.68);
 }
 
 #singularity-katana-panel-root .skp-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
-  min-height: 420px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.75fr);
+  min-height: 320px;
 }
 
 #singularity-katana-panel-root .skp-view[hidden] {
@@ -122,30 +115,31 @@
 
 #singularity-katana-panel-root .skp-main-pane,
 #singularity-katana-panel-root .skp-debug-pane {
-  padding: 16px;
+  padding: 10px;
 }
 
 #singularity-katana-panel-root .skp-debug-pane {
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
+  border-left: 1px solid rgba(220, 235, 220, 0.12);
+  background: #101315;
 }
 
 #singularity-katana-panel-root .skp-debug-title {
-  margin-bottom: 10px;
-  font-size: 12px;
+  margin-bottom: 6px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
+  color: rgba(188, 220, 188, 0.82);
 }
 
 #singularity-katana-panel-root .skp-debug-log {
   margin: 0;
   white-space: pre-wrap;
   overflow: auto;
-  max-height: 360px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.74);
+  max-height: 280px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(214, 232, 214, 0.82);
 }
 
 #singularity-katana-panel-root .skp-verified-view {
@@ -154,126 +148,126 @@
 
 #singularity-katana-panel-root .skp-logo {
   display: block;
-  width: 144px;
+  width: 124px;
   max-width: 100%;
   height: auto;
 }
 
 #singularity-katana-panel-root .skp-verified-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
   color: #f5f5f5;
 }
 
 #singularity-katana-panel-root label span {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 #singularity-katana-panel-root input {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(220, 235, 220, 0.14);
+  border-radius: 3px;
+  padding: 7px 9px;
+  background: #0b0d0f;
   color: #f5f5f5;
 }
 
 #singularity-katana-panel-root input:focus {
-  outline: 2px solid rgba(255, 255, 255, 0.16);
+  outline: 1px solid rgba(188, 220, 188, 0.28);
   outline-offset: 1px;
-  border-color: rgba(255, 255, 255, 0.28);
+  border-color: rgba(188, 220, 188, 0.3);
 }
 
 #singularity-katana-panel-root .skp-secret-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 6px;
 }
 
 #singularity-katana-panel-root .skp-reveal {
-  padding: 0 12px;
+  padding: 0 10px;
   color: #f5f5f5;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #15191c;
+  border: 1px solid rgba(220, 235, 220, 0.14);
   white-space: nowrap;
 }
 
 #singularity-katana-panel-root .skp-header-actions,
 #singularity-katana-panel-root .skp-status-row {
-  gap: 10px;
+  gap: 8px;
 }
 
 #singularity-katana-panel-root button {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
+  border: 1px solid rgba(220, 235, 220, 0.14);
+  border-radius: 3px;
   cursor: pointer;
   font-weight: 700;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
   color: #f5f5f5;
-  background: rgba(255, 255, 255, 0.06);
+  background: #15191c;
 }
 
 #singularity-katana-panel-root .skp-window-toggle {
-  min-width: 36px;
-  padding: 6px 10px;
+  min-width: 28px;
+  padding: 4px 8px;
 }
 
 #singularity-katana-panel-root .skp-primary {
-  padding: 10px 14px;
-  background: #f5f5f5;
-  border-color: #f5f5f5;
-  color: #111111;
+  padding: 8px 10px;
+  background: #d8e5d4;
+  border-color: #d8e5d4;
+  color: #101310;
 }
 
 #singularity-katana-panel-root .skp-ghost {
-  padding: 10px 14px;
+  padding: 8px 10px;
 }
 
 #singularity-katana-panel-root .skp-danger {
-  padding: 10px 14px;
-  color: #ffb0b0;
-  background: rgba(255, 84, 84, 0.08);
-  border-color: rgba(255, 84, 84, 0.24);
+  padding: 8px 10px;
+  color: #f4b1b1;
+  background: #241617;
+  border-color: rgba(255, 120, 120, 0.18);
 }
 
 #singularity-katana-panel-root button:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: #1a1f22;
 }
 
 #singularity-katana-panel-root .skp-primary:hover {
-  background: #d9d9d9;
+  background: #c8d8c4;
 }
 
 #singularity-katana-panel-root .skp-danger:hover {
-  background: rgba(255, 84, 84, 0.14);
+  background: #2d191b;
 }
 
 #singularity-katana-panel-root .skp-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
 }
 
 #singularity-katana-panel-root .skp-card,
 #singularity-katana-panel-root .skp-detail-card {
-  padding: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
+  padding: 9px 10px;
+  background: #111417;
+  border: 1px solid rgba(220, 235, 220, 0.1);
+  border-radius: 3px;
 }
 
 #singularity-katana-panel-root .skp-card-label {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
-  margin-bottom: 8px;
+  color: rgba(184, 203, 184, 0.62);
+  font-size: 10px;
+  margin-bottom: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 #singularity-katana-panel-root strong {
-  font-size: 17px;
+  font-size: 14px;
 }
 
 #singularity-katana-panel-root dl,
@@ -284,9 +278,9 @@
 #singularity-katana-panel-root dl div {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(220, 235, 220, 0.08);
 }
 
 #singularity-katana-panel-root dl div:last-child {
@@ -295,9 +289,8 @@
 
 @media (max-width: 960px) {
   #singularity-katana-panel-host {
-    right: 16px;
-    bottom: 16px;
-    width: min(520px, calc(100vw - 32px));
+    bottom: 10px;
+    width: min(500px, calc(100vw - 20px));
   }
 
   #singularity-katana-panel-root .skp-body {
@@ -306,6 +299,6 @@
 
   #singularity-katana-panel-root .skp-debug-pane {
     border-left: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid rgba(220, 235, 220, 0.12);
   }
 }

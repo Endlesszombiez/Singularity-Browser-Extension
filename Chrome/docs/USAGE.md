@@ -37,10 +37,9 @@ If your real API uses a different host, also update the allowed hosts in [Chrome
 - If the Katana app changes the URL client-side and it still matches the target prefix, the panel re-initializes.
 - If the endpoints are still left as `example.com`, the extension now keeps that state inside the panel instead of trying to use the placeholder host.
 
-## Draggable panel
+## Panel placement
 
-- Drag the panel by its header area.
-- The panel position is saved and restored from extension storage.
+- The panel stays pinned to the bottom center of the viewport.
 
 ## Load in Chrome
 

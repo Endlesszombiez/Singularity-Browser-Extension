@@ -1,10 +1,8 @@
 const TARGET_URL_PREFIX = "https://factory.katanamrp.com/salesorder/";
 const METHOD_URL_PREFIX = "https://botanaway.method.me/apps/";
 const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
-const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storage.local;
 const PANEL_ID = "singularity-katana-panel-root";
 const PANEL_HOST_ID = "singularity-katana-panel-host";
-const PANEL_POSITION_KEY = "panelPosition";
 const PANEL_DEBUG_LOG_ID = "skp-panel-debug-log";
 const ORDER_NUMBER_WAIT_MS = 10000;
 const ORDER_NUMBER_POLL_MS = 5000;
@@ -21,12 +19,9 @@ const METHOD_DEBUG_MAX_ENTRIES = 80;
 
 let currentUrl = window.location.href;
 let elements = null;
-let dragState = null;
 let lastVerifiedAt = null;
 let katanaDebugEntries = [];
 let isKatanaPanelMinimized = false;
-let katanaMinimizedRestorePosition = null;
-let katanaShouldRestoreMinimizedPosition = false;
 let methodScanTimeoutId = null;
 let methodDebugEntries = [];
 let methodScanInProgress = false;
@@ -135,41 +130,6 @@ function isMethodInternalNode(node) {
   );
 }
 
-async function getStoredPanelPosition() {
-  try {
-    const stored = await storageApi.get(PANEL_POSITION_KEY);
-    return stored?.[PANEL_POSITION_KEY] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function savePanelPosition(position) {
-  try {
-    await storageApi.set({ [PANEL_POSITION_KEY]: position });
-  } catch {
-    // Ignore storage failures and keep the panel usable.
-  }
-}
-
-function clampPanelPosition(position, host) {
-  const maxLeft = Math.max(8, window.innerWidth - host.offsetWidth - 8);
-  const maxTop = Math.max(8, window.innerHeight - host.offsetHeight - 8);
-
-  return {
-    left: Math.min(Math.max(8, position.left), maxLeft),
-    top: Math.min(Math.max(8, position.top), maxTop)
-  };
-}
-
-function applyPanelPosition(position, host) {
-  const safePosition = clampPanelPosition(position, host);
-  host.style.left = `${safePosition.left}px`;
-  host.style.top = `${safePosition.top}px`;
-  host.style.right = "auto";
-  host.style.bottom = "auto";
-}
-
 function formatTimestamp(value) {
   if (!value) {
     return "Not verified yet";
@@ -212,26 +172,6 @@ function updateKatanaPanelMinimizedState() {
   elements.shell.classList.toggle("skp-minimized", isKatanaPanelMinimized);
   elements.minimizeButton.textContent = isKatanaPanelMinimized ? "+" : "_";
   elements.minimizeButton.title = isKatanaPanelMinimized ? "Expand panel" : "Minimize panel";
-}
-
-async function keepKatanaPanelInBounds() {
-  if (!elements?.host) {
-    return;
-  }
-
-  const rect = elements.host.getBoundingClientRect();
-  const safePosition = clampPanelPosition({ left: rect.left, top: rect.top }, elements.host);
-  applyPanelPosition(safePosition, elements.host);
-  await savePanelPosition(safePosition);
-}
-
-async function restoreKatanaMinimizedPositionIfNeeded() {
-  if (!elements?.host || !katanaShouldRestoreMinimizedPosition || !katanaMinimizedRestorePosition) {
-    return;
-  }
-
-  applyPanelPosition(katanaMinimizedRestorePosition, elements.host);
-  await savePanelPosition(katanaMinimizedRestorePosition);
 }
 
 function createPanel() {
@@ -370,29 +310,8 @@ function createPanel() {
     const action = event.target.closest("[data-action]")?.dataset.action;
 
     if (action === "toggle-minimize") {
-      const wasMinimized = isKatanaPanelMinimized;
-
-      if (!wasMinimized) {
-        const rect = elements.host.getBoundingClientRect();
-        katanaMinimizedRestorePosition = { left: rect.left, top: rect.top };
-      }
-
       isKatanaPanelMinimized = !isKatanaPanelMinimized;
       updateKatanaPanelMinimizedState();
-
-      if (wasMinimized) {
-        await wait(0);
-        const rectBeforeClamp = elements.host.getBoundingClientRect();
-        await keepKatanaPanelInBounds();
-        const rectAfterClamp = elements.host.getBoundingClientRect();
-        katanaShouldRestoreMinimizedPosition = (
-          rectBeforeClamp.left !== rectAfterClamp.left ||
-          rectBeforeClamp.top !== rectAfterClamp.top
-        );
-      } else {
-        await restoreKatanaMinimizedPositionIfNeeded();
-      }
-
       return;
     }
 
@@ -429,60 +348,6 @@ function createPanel() {
     elements.revealSecretButton.addEventListener(eventName, () => {
       setSecretVisibility(false);
     });
-  });
-
-  elements.header.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("button, input, textarea, select, a")) {
-      return;
-    }
-
-    const rect = elements.host.getBoundingClientRect();
-    dragState = {
-      pointerId: event.pointerId,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top
-    };
-
-    elements.host.setPointerCapture?.(event.pointerId);
-    elements.shell.classList.add("skp-dragging");
-    event.preventDefault();
-  });
-
-  elements.host.addEventListener("pointermove", (event) => {
-    if (!dragState || event.pointerId !== dragState.pointerId) {
-      return;
-    }
-
-    applyPanelPosition(
-      {
-        left: event.clientX - dragState.offsetX,
-        top: event.clientY - dragState.offsetY
-      },
-      elements.host
-    );
-  });
-
-  elements.host.addEventListener("pointerup", async (event) => {
-    if (!dragState || event.pointerId !== dragState.pointerId) {
-      return;
-    }
-
-    elements.host.releasePointerCapture?.(event.pointerId);
-    elements.shell.classList.remove("skp-dragging");
-
-    const rect = elements.host.getBoundingClientRect();
-    await savePanelPosition({ left: rect.left, top: rect.top });
-    katanaShouldRestoreMinimizedPosition = false;
-    dragState = null;
-  });
-
-  elements.host.addEventListener("pointercancel", (event) => {
-    if (!dragState || event.pointerId !== dragState.pointerId) {
-      return;
-    }
-
-    elements.shell.classList.remove("skp-dragging");
-    dragState = null;
   });
 
   elements.authForm.addEventListener("submit", async (event) => {
@@ -953,13 +818,6 @@ async function bootstrapPanel() {
   }
 
   createPanel();
-  const storedPosition = await getStoredPanelPosition();
-
-  if (storedPosition) {
-    applyPanelPosition(storedPosition, elements.host);
-  }
-
-  await keepKatanaPanelInBounds();
 
   const authState = await sendRuntimeMessage({ action: "getAuthState" });
   lastVerifiedAt = authState.verifiedAt ?? null;
@@ -1030,15 +888,4 @@ const methodDomObserver = new MutationObserver((mutations) => {
 methodDomObserver.observe(document.body ?? document.documentElement, {
   childList: true,
   subtree: true
-});
-
-window.addEventListener("resize", async () => {
-  if (!elements?.host) {
-    return;
-  }
-
-  const rect = elements.host.getBoundingClientRect();
-  const safePosition = clampPanelPosition({ left: rect.left, top: rect.top }, elements.host);
-  applyPanelPosition(safePosition, elements.host);
-  await savePanelPosition(safePosition);
 });
