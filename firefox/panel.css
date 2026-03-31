@@ -21,8 +21,8 @@
   border: 1px solid rgba(220, 235, 220, 0.18);
   border-radius: 4px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-  overflow: hidden;
-  max-height: min(560px, calc(100vh - 24px));
+  overflow: auto;
+  max-height: min(510px, calc(100vh - 24px));
 }
 
 #singularity-katana-panel-root .skp-header,
@@ -380,6 +380,14 @@
   gap: 8px;
 }
 
+#singularity-katana-panel-root .skp-woocommerce-summary-grid {
+  margin-bottom: 10px;
+}
+
+#singularity-katana-panel-root .skp-woocommerce-detail-group {
+  margin-bottom: 10px;
+}
+
 #singularity-katana-panel-root .skp-card-label {
   color: rgba(184, 203, 184, 0.62);
   font-size: 10px;
@@ -430,6 +438,49 @@
   background: #111417;
   border: 1px solid rgba(220, 235, 220, 0.12);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+#singularity-katana-panel-root .skp-modal-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+#singularity-katana-panel-root .skp-woocommerce-modal-card {
+  width: min(100%, 640px);
+  max-height: min(430px, calc(100vh - 120px));
+}
+
+#singularity-katana-panel-root .skp-woocommerce-modal-body {
+  overflow: auto;
+  padding-right: 2px;
+}
+
+#singularity-katana-panel-root .skp-woo-items {
+  display: grid;
+  gap: 8px;
+}
+
+#singularity-katana-panel-root .skp-woo-item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(220, 235, 220, 0.08);
+}
+
+#singularity-katana-panel-root .skp-woo-item-row:last-child {
+  border-bottom: 0;
+}
+
+#singularity-katana-panel-root .skp-woo-item-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(214, 232, 214, 0.82);
 }
 
 #singularity-katana-panel-root .skp-modal-actions {

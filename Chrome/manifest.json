@@ -9,7 +9,8 @@
   "host_permissions": [
     "https://factory.katanamrp.com/salesorder/*",
     "https://botanaway.method.me/apps/*",
-    "https://singularitysalesplatform.com/*"
+    "https://singularitysalesplatform.com/*",
+    "https://*/wp-json/*"
   ],
   "background": {
     "service_worker": "src/background.js",

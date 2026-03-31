@@ -35,6 +35,7 @@ let panelBootstrapInProgress = false;
 let panelBootstrapRetryTimeoutId = null;
 let panelPresenceCheckTimeoutId = null;
 let isRemoveCredentialsModalOpen = false;
+let isWooCommerceModalOpen = false;
 
 function isTargetUrl(url) {
   return url.startsWith(TARGET_URL_PREFIX);
@@ -217,6 +218,7 @@ function updateKatanaPanelMinimizedState() {
   elements.minimizeButton.setAttribute("aria-label", isKatanaPanelMinimized ? "Expand panel" : "Minimize panel");
   updateHeaderActionVisibility();
   updateRemoveCredentialsModalState();
+  updateWooCommerceModalState();
 }
 
 function updateHeaderActionVisibility() {
@@ -244,6 +246,16 @@ function updateRemoveCredentialsModalState() {
   elements.removeCredentialsModal.setAttribute("aria-hidden", String(!shouldShowModal));
 }
 
+function updateWooCommerceModalState() {
+  if (!elements?.wooCommerceModal) {
+    return;
+  }
+
+  const shouldShowModal = isWooCommerceModalOpen && !isKatanaPanelMinimized;
+  elements.wooCommerceModal.hidden = !shouldShowModal;
+  elements.wooCommerceModal.setAttribute("aria-hidden", String(!shouldShowModal));
+}
+
 function openRemoveCredentialsModal() {
   isRemoveCredentialsModalOpen = true;
   updateRemoveCredentialsModalState();
@@ -252,6 +264,16 @@ function openRemoveCredentialsModal() {
 function closeRemoveCredentialsModal() {
   isRemoveCredentialsModalOpen = false;
   updateRemoveCredentialsModalState();
+}
+
+function openWooCommerceModal() {
+  isWooCommerceModalOpen = true;
+  updateWooCommerceModalState();
+}
+
+function closeWooCommerceModal() {
+  isWooCommerceModalOpen = false;
+  updateWooCommerceModalState();
 }
 
 function createPanel() {
@@ -390,9 +412,11 @@ function createPanel() {
                 </label>
                 <div class="skp-inline-actions">
                   <button type="submit" class="skp-primary">Search Order</button>
+                  <button type="button" class="skp-ghost" data-action="lookup-woocommerce-order">Lookup WooCommerce</button>
                   <button type="button" class="skp-ghost" data-action="clear-manual-order">Use Katana Order</button>
                 </div>
               </form>
+              <p class="skp-meta" id="skp-woocommerce-lookup-status">WooCommerce lookup is ready when an order number is available.</p>
             </div>
           </section>
         </section>
@@ -408,6 +432,69 @@ function createPanel() {
           <div class="skp-modal-actions">
             <button type="button" class="skp-ghost" data-action="cancel-remove-api-key">Cancel</button>
             <button type="button" class="skp-danger" data-action="confirm-remove-api-key">Remove API Key</button>
+          </div>
+        </div>
+      </div>
+      <div class="skp-modal-backdrop" id="skp-woocommerce-modal" hidden aria-hidden="true">
+        <div class="skp-modal-card skp-woocommerce-modal-card" role="dialog" aria-modal="true" aria-labelledby="skp-woocommerce-modal-title">
+          <div class="skp-modal-heading">
+            <div>
+              <h3 id="skp-woocommerce-modal-title">WooCommerce Order Lookup</h3>
+              <p class="skp-copy" id="skp-woocommerce-modal-subtitle">Search a WooCommerce order to fill in missing details.</p>
+            </div>
+            <button type="button" class="skp-icon-button" data-action="close-woocommerce-modal" title="Close WooCommerce modal" aria-label="Close WooCommerce modal">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12" />
+                <path d="M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+          <div class="skp-woocommerce-modal-body">
+            <div class="skp-grid skp-woocommerce-summary-grid">
+              <article class="skp-card">
+                <p class="skp-card-label">Store</p>
+                <strong id="skp-woo-site-label">-</strong>
+              </article>
+              <article class="skp-card">
+                <p class="skp-card-label">Order Status</p>
+                <strong id="skp-woo-order-status">-</strong>
+              </article>
+              <article class="skp-card">
+                <p class="skp-card-label">Customer</p>
+                <strong id="skp-woo-customer-name">-</strong>
+              </article>
+              <article class="skp-card">
+                <p class="skp-card-label">Email</p>
+                <strong id="skp-woo-customer-email">-</strong>
+              </article>
+            </div>
+            <div class="skp-detail-group skp-woocommerce-detail-group">
+              <section class="skp-detail-card">
+                <h3>Billing</h3>
+                <dl>
+                  <div><dt>Name</dt><dd id="skp-woo-billing-name">-</dd></div>
+                  <div><dt>Company</dt><dd id="skp-woo-billing-company">-</dd></div>
+                  <div><dt>Address</dt><dd id="skp-woo-billing-address">-</dd></div>
+                  <div><dt>Phone</dt><dd id="skp-woo-billing-phone">-</dd></div>
+                </dl>
+              </section>
+              <section class="skp-detail-card">
+                <h3>Shipping</h3>
+                <dl>
+                  <div><dt>Name</dt><dd id="skp-woo-shipping-name">-</dd></div>
+                  <div><dt>Company</dt><dd id="skp-woo-shipping-company">-</dd></div>
+                  <div><dt>Address</dt><dd id="skp-woo-shipping-address">-</dd></div>
+                  <div><dt>Methods</dt><dd id="skp-woo-shipping-lines">-</dd></div>
+                </dl>
+              </section>
+            </div>
+            <section class="skp-detail-card">
+              <h3>Items</h3>
+              <div class="skp-woo-items" id="skp-woo-items">No items loaded.</div>
+            </section>
+          </div>
+          <div class="skp-modal-actions">
+            <button type="button" class="skp-ghost" data-action="close-woocommerce-modal">Close</button>
           </div>
         </div>
       </div>
@@ -440,6 +527,7 @@ function createPanel() {
     manualOrderForm: root.querySelector("#skp-manual-order-form"),
     manualOrderInput: root.querySelector('input[name="manualOrderNumber"]'),
     manualOrderStatus: root.querySelector("#skp-manual-order-status"),
+    wooCommerceLookupStatus: root.querySelector("#skp-woocommerce-lookup-status"),
     manualOrderToggle: root.querySelector('[data-action="toggle-manual-order"]'),
     companyName: root.querySelector("#skp-company-name"),
     contactName: root.querySelector("#skp-contact-name"),
@@ -452,16 +540,37 @@ function createPanel() {
     orderTrackingNumber: root.querySelector("#skp-order-tracking-number"),
     orderShipMethod: root.querySelector("#skp-order-ship-method"),
     panelDebugLog: root.querySelector(`#${PANEL_DEBUG_LOG_ID}`),
-    removeCredentialsModal: root.querySelector("#skp-remove-api-key-modal")
+    removeCredentialsModal: root.querySelector("#skp-remove-api-key-modal"),
+    wooCommerceModal: root.querySelector("#skp-woocommerce-modal"),
+    wooCommerceModalSubtitle: root.querySelector("#skp-woocommerce-modal-subtitle"),
+    wooSiteLabel: root.querySelector("#skp-woo-site-label"),
+    wooOrderStatus: root.querySelector("#skp-woo-order-status"),
+    wooCustomerName: root.querySelector("#skp-woo-customer-name"),
+    wooCustomerEmail: root.querySelector("#skp-woo-customer-email"),
+    wooBillingName: root.querySelector("#skp-woo-billing-name"),
+    wooBillingCompany: root.querySelector("#skp-woo-billing-company"),
+    wooBillingAddress: root.querySelector("#skp-woo-billing-address"),
+    wooBillingPhone: root.querySelector("#skp-woo-billing-phone"),
+    wooShippingName: root.querySelector("#skp-woo-shipping-name"),
+    wooShippingCompany: root.querySelector("#skp-woo-shipping-company"),
+    wooShippingAddress: root.querySelector("#skp-woo-shipping-address"),
+    wooShippingLines: root.querySelector("#skp-woo-shipping-lines"),
+    wooItems: root.querySelector("#skp-woo-items")
   };
   updateKatanaDebugLog();
   updateKatanaPanelMinimizedState();
   updateHeaderActionVisibility();
   updateRemoveCredentialsModalState();
+  updateWooCommerceModalState();
 
   root.addEventListener("click", async (event) => {
     if (event.target === elements.removeCredentialsModal) {
       closeRemoveCredentialsModal();
+      return;
+    }
+
+    if (event.target === elements.wooCommerceModal) {
+      closeWooCommerceModal();
       return;
     }
 
@@ -494,12 +603,23 @@ function createPanel() {
       return;
     }
 
+    if (action === "lookup-woocommerce-order") {
+      await lookupWooCommerceOrder();
+      return;
+    }
+
     if (action === "clear-manual-order") {
       manualOrderNumberOverride = "";
       elements.manualOrderForm.reset();
       updateManualOrderStatus("Katana order auto-detection is active.");
+      updateWooCommerceLookupStatus("WooCommerce lookup is ready when an order number is available.");
       pushKatanaDebug("Manual order override cleared");
       await loadPanelData({ preserveView: true });
+      return;
+    }
+
+    if (action === "close-woocommerce-modal") {
+      closeWooCommerceModal();
       return;
     }
 
@@ -519,8 +639,14 @@ function createPanel() {
   });
 
   root.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && isRemoveCredentialsModalOpen) {
-      closeRemoveCredentialsModal();
+    if (event.key === "Escape") {
+      if (isRemoveCredentialsModalOpen) {
+        closeRemoveCredentialsModal();
+      }
+
+      if (isWooCommerceModalOpen) {
+        closeWooCommerceModal();
+      }
     }
   });
 
@@ -553,6 +679,7 @@ function createPanel() {
     manualOrderNumberOverride = orderNumber;
     elements.manualOrderInput.value = orderNumber;
     updateManualOrderStatus(`Manual Sales Order search active: ${orderNumber}.`);
+    updateWooCommerceLookupStatus(`WooCommerce lookup ready for order ${orderNumber}.`);
     pushKatanaDebug("Manual order override set", orderNumber);
     await loadPanelData({ preserveView: true });
   });
@@ -694,6 +821,11 @@ function renderPanelData(result) {
       ? `Manual Sales Order search active: ${manualOrderNumberOverride}.`
       : "Katana order auto-detection is active."
   );
+  updateWooCommerceLookupStatus(
+    manualOrderNumberOverride
+      ? `WooCommerce lookup ready for order ${manualOrderNumberOverride}.`
+      : "WooCommerce lookup is ready when an order number is available."
+  );
   pushKatanaDebug("Panel data rendered", elements.refreshStatus.textContent);
 }
 
@@ -703,6 +835,80 @@ function updateManualOrderStatus(message) {
   }
 
   elements.manualOrderStatus.textContent = message;
+}
+
+function updateWooCommerceLookupStatus(message) {
+  if (!elements?.wooCommerceLookupStatus) {
+    return;
+  }
+
+  elements.wooCommerceLookupStatus.textContent = message;
+}
+
+function setTextContent(element, value) {
+  if (!element) {
+    return;
+  }
+
+  element.textContent = String(value ?? "N/A");
+}
+
+function renderWooCommerceItems(items = []) {
+  if (!elements?.wooItems) {
+    return;
+  }
+
+  elements.wooItems.innerHTML = "";
+
+  if (!items.length) {
+    elements.wooItems.textContent = "No line items found.";
+    return;
+  }
+
+  items.forEach((item) => {
+    const row = document.createElement("article");
+    row.className = "skp-woo-item-row";
+    row.innerHTML = `
+      <div>
+        <strong>${item.name}</strong>
+        <p class="skp-meta">SKU: ${item.sku}</p>
+      </div>
+      <div class="skp-woo-item-meta">
+        <span>Qty ${item.quantity}</span>
+        <span>${item.total}</span>
+      </div>
+    `;
+    elements.wooItems.appendChild(row);
+  });
+}
+
+function renderWooCommerceOrder(result) {
+  const order = result?.order;
+
+  if (!order) {
+    return;
+  }
+
+  setTextContent(elements.wooSiteLabel, order.site.label);
+  setTextContent(elements.wooOrderStatus, order.order.status);
+  setTextContent(elements.wooCustomerName, order.customer.name);
+  setLinkedValue(elements.wooCustomerEmail, order.customer.email);
+  setTextContent(elements.wooBillingName, order.billing.name);
+  setTextContent(elements.wooBillingCompany, order.billing.company);
+  setTextContent(elements.wooBillingAddress, order.billing.addressText);
+  setTextContent(elements.wooBillingPhone, order.billing.phone);
+  setTextContent(elements.wooShippingName, order.shipping.name);
+  setTextContent(elements.wooShippingCompany, order.shipping.company);
+  setTextContent(elements.wooShippingAddress, order.shipping.addressText);
+  setTextContent(
+    elements.wooShippingLines,
+    order.shippingLines.length
+      ? order.shippingLines.map((line) => `${line.method} (${line.total})`).join(", ")
+      : "No shipping lines"
+  );
+  elements.wooCommerceModalSubtitle.textContent = `Order #${order.order.number} from ${order.site.baseUrl}`;
+  renderWooCommerceItems(order.items);
+  openWooCommerceModal();
 }
 
 function extractMeaningfulText(value) {
@@ -821,6 +1027,44 @@ async function getOrderNumberWithDelay() {
   return getOrderNumberFromPage();
 }
 
+async function lookupWooCommerceOrder() {
+  const inferredOrderNumber = extractMeaningfulText(elements?.manualOrderInput?.value)
+    || manualOrderNumberOverride
+    || getOrderNumberFromPage();
+
+  if (!isLikelyOrderNumber(inferredOrderNumber)) {
+    updateWooCommerceLookupStatus("Enter a valid order number before running WooCommerce lookup.");
+    return;
+  }
+
+  manualOrderNumberOverride = inferredOrderNumber;
+  elements.manualOrderInput.value = inferredOrderNumber;
+  updateManualOrderStatus(`Manual Sales Order search active: ${inferredOrderNumber}.`);
+  updateWooCommerceLookupStatus(`Searching WooCommerce sites for order ${inferredOrderNumber}...`);
+  pushKatanaDebug("WooCommerce lookup started", inferredOrderNumber);
+
+  const result = await sendRuntimeMessage({
+    action: "lookupWooCommerceOrder",
+    payload: {
+      orderNumber: inferredOrderNumber
+    }
+  });
+
+  if (!result?.ok) {
+    updateWooCommerceLookupStatus(result?.error ?? "WooCommerce lookup failed.");
+    pushKatanaDebug("WooCommerce lookup failed", result?.error ?? "Unknown error");
+    return;
+  }
+
+  if (result.apiPayload !== undefined) {
+    pushKatanaDebug("WooCommerce API payload received", formatDebugPayload("woocommerce", result.apiPayload));
+  }
+
+  renderWooCommerceOrder(result);
+  updateWooCommerceLookupStatus(`WooCommerce match found on ${result.site.label}.`);
+  pushKatanaDebug("WooCommerce lookup matched", `${result.site.label} / ${result.order?.order?.number ?? inferredOrderNumber}`);
+}
+
 async function loadPanelData({ preserveView = false } = {}) {
   if (!elements) {
     return;
@@ -839,9 +1083,11 @@ async function loadPanelData({ preserveView = false } = {}) {
     if (manualOrderNumberOverride) {
       elements.manualOrderInput.value = manualOrderNumberOverride;
       updateManualOrderStatus(`Manual Sales Order search active: ${manualOrderNumberOverride}.`);
+      updateWooCommerceLookupStatus(`WooCommerce lookup ready for order ${manualOrderNumberOverride}.`);
       pushKatanaDebug("Manual order override", manualOrderNumberOverride);
     } else if (!orderNumber) {
       updateManualOrderStatus("No Sales Order number found on the Katana page. Enter one here to search manually.");
+      updateWooCommerceLookupStatus("No order number available yet for WooCommerce lookup.");
       pushKatanaDebug("Order number resolved", "No order number found");
       elements.refreshStatus.textContent = "Automatic lookup paused. Enter a Sales Order number to search manually.";
 
@@ -852,6 +1098,7 @@ async function loadPanelData({ preserveView = false } = {}) {
       return;
     } else {
       updateManualOrderStatus(`Katana order detected: ${orderNumber}. You can override it below if needed.`);
+      updateWooCommerceLookupStatus(`WooCommerce lookup ready for order ${orderNumber}.`);
       pushKatanaDebug("Order number resolved", orderNumber);
     }
 
@@ -883,6 +1130,7 @@ async function loadPanelData({ preserveView = false } = {}) {
     pushKatanaDebug("Load failed", error.message);
     if (!manualOrderNumberOverride) {
       updateManualOrderStatus("Automatic lookup did not finish. Enter a Sales Order number to search manually.");
+      updateWooCommerceLookupStatus("WooCommerce lookup is available if you enter an order number manually.");
     }
     if (lastVerifiedAt) {
       showVerifiedSplash(lastVerifiedAt, error.message);

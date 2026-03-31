@@ -9,26 +9,85 @@
   <body>
     <main class="settings-shell">
       <section class="settings-card">
-        <p class="eyebrow">Singularity Katana Panel</p>
-        <h1>Credential Settings</h1>
-        <p class="copy">
-          Stored API keys remain hidden. Enter a replacement pair below to verify and rotate the active credentials.
-        </p>
-        <form id="settings-form">
-          <label>
-            <span>New public key</span>
-            <input type="password" name="publicKey" autocomplete="off" required />
-          </label>
-          <label>
-            <span>New secret key</span>
-            <input type="password" name="secretKey" autocomplete="off" required />
-          </label>
-          <div class="actions">
-            <button type="submit">Verify & Replace</button>
-            <button type="button" class="secondary" id="clear-credentials">Clear Stored Keys</button>
+        <div class="window-bar" aria-hidden="true">
+          <span class="window-dot"></span>
+          <span class="window-dot"></span>
+          <span class="window-dot"></span>
+          <p class="window-title">singularity-katana://settings</p>
+        </div>
+
+        <header class="hero">
+          <p class="eyebrow">Singularity Katana Panel</p>
+          <h1>Settings Console</h1>
+          <p class="terminal-line">$ singularity settings --katana --configure</p>
+          <p class="copy">
+            Store your Singularity API keys here and add one or more WooCommerce websites for manual order lookups.
+          </p>
+        </header>
+
+        <section class="settings-section">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">[auth]</p>
+              <h2>Singularity API</h2>
+              <p class="copy compact">Stored API keys remain hidden. Enter a replacement pair below to verify and rotate the active credentials.</p>
+            </div>
           </div>
-        </form>
-        <p class="status" id="settings-status">No status yet.</p>
+          <form id="settings-form">
+            <label>
+              <span>New public key</span>
+              <input type="password" name="publicKey" autocomplete="off" required />
+            </label>
+            <label>
+              <span>New secret key</span>
+              <input type="password" name="secretKey" autocomplete="off" required />
+            </label>
+            <div class="actions">
+              <button type="submit">Verify & Replace</button>
+              <button type="button" class="secondary" id="clear-credentials">Clear Stored Keys</button>
+            </div>
+          </form>
+          <p class="status" id="settings-status">No status yet.</p>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">[stores]</p>
+              <h2>WooCommerce Sites</h2>
+              <p class="copy compact">Add each store once. Manual lookup will search them in order until it finds a matching order number.</p>
+            </div>
+            <button type="button" class="secondary compact-button" id="clear-woocommerce-sites">Clear All Sites</button>
+          </div>
+
+          <form id="woocommerce-form">
+            <label>
+              <span>Site label</span>
+              <input type="text" name="label" autocomplete="off" placeholder="Main Store" required />
+            </label>
+            <label>
+              <span>Website URL</span>
+              <input type="url" name="baseUrl" autocomplete="off" placeholder="https://store.example.com" required />
+            </label>
+            <label>
+              <span>Consumer key</span>
+              <input type="password" name="consumerKey" autocomplete="off" required />
+            </label>
+            <label>
+              <span>Consumer secret</span>
+              <input type="password" name="consumerSecret" autocomplete="off" required />
+            </label>
+            <div class="actions">
+              <button type="submit">Verify & Save Site</button>
+            </div>
+          </form>
+
+          <div class="site-list-shell">
+            <h3>Saved stores</h3>
+            <div id="woocommerce-sites" class="site-list"></div>
+          </div>
+          <p class="status" id="woocommerce-status">No WooCommerce sites saved yet.</p>
+        </section>
       </section>
       <script type="module" src="./options.js"></script>
     </main>

@@ -7,6 +7,7 @@ export const API_CONFIG = {
 
 export const STORAGE_KEYS = {
   credentials: "encryptedCredentials",
+  wooCommerceSites: "encryptedWooCommerceSites",
   encryptionKey: "localEncryptionKey",
   onboarding: "verificationState"
 };
