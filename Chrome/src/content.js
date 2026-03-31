@@ -201,18 +201,37 @@ function updateKatanaPanelMinimizedState() {
   }
 
   elements.shell.classList.toggle("skp-minimized", isKatanaPanelMinimized);
-  elements.minimizeButton.textContent = isKatanaPanelMinimized ? "+" : "_";
+  elements.minimizeButton.innerHTML = isKatanaPanelMinimized
+    ? `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </svg>
+    `
+    : `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 12h12" />
+      </svg>
+    `;
   elements.minimizeButton.title = isKatanaPanelMinimized ? "Expand panel" : "Minimize panel";
+  elements.minimizeButton.setAttribute("aria-label", isKatanaPanelMinimized ? "Expand panel" : "Minimize panel");
   updateHeaderActionVisibility();
   updateRemoveCredentialsModalState();
 }
 
 function updateHeaderActionVisibility() {
-  if (!elements?.headerActionGroup) {
+  if (!elements?.headerActionGroup || !elements?.minimizeButton) {
     return;
   }
 
-  elements.headerActionGroup.hidden = isKatanaPanelMinimized || currentPanelView === "auth";
+  const isAuthView = currentPanelView === "auth";
+  if (elements.refreshButton) {
+    elements.refreshButton.hidden = isAuthView;
+  }
+  if (elements.removeCredentialsButton) {
+    elements.removeCredentialsButton.hidden = isAuthView || isKatanaPanelMinimized;
+  }
+  elements.headerActionGroup.hidden = false;
 }
 
 function updateRemoveCredentialsModalState() {
@@ -280,8 +299,12 @@ function createPanel() {
                 <path d="M14 11v5" />
               </svg>
             </button>
+            <button type="button" class="skp-icon-button skp-window-toggle" data-action="toggle-minimize" title="Minimize panel" aria-label="Minimize panel">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 12h12" />
+              </svg>
+            </button>
           </div>
-          <button type="button" class="skp-window-toggle" data-action="toggle-minimize" title="Minimize panel">_</button>
         </div>
       </header>
       <div class="skp-body">
@@ -399,6 +422,8 @@ function createPanel() {
     shell: root.querySelector(".skp-shell"),
     header: root.querySelector(".skp-header"),
     headerActionGroup: root.querySelector(".skp-header-panel-actions"),
+    refreshButton: root.querySelector('[data-action="refresh-data"]'),
+    removeCredentialsButton: root.querySelector('[data-action="open-remove-api-key-modal"]'),
     minimizeButton: root.querySelector('[data-action="toggle-minimize"]'),
     authView: root.querySelector('[data-view="auth"]'),
     verifiedView: root.querySelector('[data-view="verified"]'),

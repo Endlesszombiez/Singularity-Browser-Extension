@@ -18,6 +18,20 @@ Browser extension scaffold for Chrome and Firefox that injects a Singularity pan
 4. After verification succeeds, the panel will fetch the extra details and KPI cards.
 5. Use the panel `Settings` button to rotate credentials later.
 
+## Build XPI packages
+
+Run the packaging script from the repo root:
+
+```bash
+./scripts/build-xpi.sh
+```
+
+This creates `.xpi` archives in `dist/` for the default extension folders. You can also package a specific folder:
+
+```bash
+./scripts/build-xpi.sh Firefox
+```
+
 ## Important files
 
 - [Chrome/manifest.json](./Chrome/manifest.json)

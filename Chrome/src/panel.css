@@ -234,6 +234,8 @@
 
 #singularity-katana-panel-root .skp-header-actions,
 #singularity-katana-panel-root .skp-status-row {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -253,11 +255,6 @@
   background: #15191c;
 }
 
-#singularity-katana-panel-root .skp-window-toggle {
-  min-width: 28px;
-  padding: 4px 8px;
-}
-
 #singularity-katana-panel-root .skp-icon-button {
   display: inline-flex;
   align-items: center;
@@ -275,6 +272,11 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+#singularity-katana-panel-root .skp-window-toggle svg {
+  width: 14px;
+  height: 14px;
 }
 
 #singularity-katana-panel-root .skp-danger-icon {
@@ -414,6 +416,10 @@
   place-items: center;
   padding: 16px;
   background: rgba(8, 10, 12, 0.72);
+}
+
+#singularity-katana-panel-root .skp-modal-backdrop[hidden] {
+  display: none !important;
 }
 
 #singularity-katana-panel-root .skp-modal-card {
