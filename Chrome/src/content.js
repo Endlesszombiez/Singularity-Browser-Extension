@@ -23,13 +23,18 @@ let elements = null;
 let lastVerifiedAt = null;
 let katanaDebugEntries = [];
 let isKatanaPanelMinimized = false;
+let currentPanelView = "auth";
 let manualOrderNumberOverride = "";
 let isManualOrderCollapsed = true;
 let methodScanTimeoutId = null;
 let methodDebugEntries = [];
 let methodScanInProgress = false;
 let methodScanQueued = false;
-let methodDebugMinimized = false;
+let methodDebugMinimized = true;
+let panelBootstrapInProgress = false;
+let panelBootstrapRetryTimeoutId = null;
+let panelPresenceCheckTimeoutId = null;
+let isRemoveCredentialsModalOpen = false;
 
 function isTargetUrl(url) {
   return url.startsWith(TARGET_URL_PREFIX);
@@ -53,8 +58,9 @@ function ensureMethodDebugWindow() {
   host = document.createElement("aside");
   host.id = METHOD_DEBUG_HOST_ID;
   host.style.position = "fixed";
-  host.style.right = "12px";
-  host.style.bottom = "12px";
+  host.style.left = "50%";
+  host.style.top = "50%";
+  host.style.transform = "translate(-50%, -50%)";
   host.style.width = "360px";
   host.style.maxHeight = "45vh";
   host.style.zIndex = "2147483647";
@@ -197,11 +203,51 @@ function updateKatanaPanelMinimizedState() {
   elements.shell.classList.toggle("skp-minimized", isKatanaPanelMinimized);
   elements.minimizeButton.textContent = isKatanaPanelMinimized ? "+" : "_";
   elements.minimizeButton.title = isKatanaPanelMinimized ? "Expand panel" : "Minimize panel";
+  updateHeaderActionVisibility();
+  updateRemoveCredentialsModalState();
+}
+
+function updateHeaderActionVisibility() {
+  if (!elements?.headerActionGroup) {
+    return;
+  }
+
+  elements.headerActionGroup.hidden = isKatanaPanelMinimized || currentPanelView === "auth";
+}
+
+function updateRemoveCredentialsModalState() {
+  if (!elements?.removeCredentialsModal) {
+    return;
+  }
+
+  const shouldShowModal = isRemoveCredentialsModalOpen && !isKatanaPanelMinimized;
+  elements.removeCredentialsModal.hidden = !shouldShowModal;
+  elements.removeCredentialsModal.setAttribute("aria-hidden", String(!shouldShowModal));
+}
+
+function openRemoveCredentialsModal() {
+  isRemoveCredentialsModalOpen = true;
+  updateRemoveCredentialsModalState();
+}
+
+function closeRemoveCredentialsModal() {
+  isRemoveCredentialsModalOpen = false;
+  updateRemoveCredentialsModalState();
 }
 
 function createPanel() {
-  if (document.getElementById(PANEL_HOST_ID)) {
+  const existingHost = document.getElementById(PANEL_HOST_ID);
+
+  if (existingHost && elements?.host === existingHost) {
     return elements;
+  }
+
+  if (!document.body) {
+    return null;
+  }
+
+  if (existingHost) {
+    existingHost.remove();
   }
 
   const host = document.createElement("div");
@@ -213,10 +259,28 @@ function createPanel() {
     <div class="skp-shell">
       <header class="skp-header">
         <div class="skp-header-main">
+          <img class="skp-header-logo" src="${logoUrl}" alt="Company logo" />
           <h2>Sales Order Intelligence</h2>
           <p class="skp-header-copy">$ singularity panel --katana --live</p>
         </div>
         <div class="skp-header-actions">
+          <div class="skp-header-panel-actions" hidden>
+            <button type="button" class="skp-icon-button" data-action="refresh-data" title="Refresh panel data" aria-label="Refresh panel data">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                <path d="M20 4v6h-6" />
+              </svg>
+            </button>
+            <button type="button" class="skp-icon-button skp-danger-icon" data-action="open-remove-api-key-modal" title="Remove stored API key" aria-label="Remove stored API key">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 11v5" />
+                <path d="M14 11v5" />
+              </svg>
+            </button>
+          </div>
           <button type="button" class="skp-window-toggle" data-action="toggle-minimize" title="Minimize panel">_</button>
         </div>
       </header>
@@ -245,12 +309,10 @@ function createPanel() {
             <p class="skp-verified-title">Credentials Verified</p>
             <p class="skp-meta" id="skp-verified-meta">Stored credentials are ready to use.</p>
             <p class="skp-meta" id="skp-verified-status">Loading customer and sales order data...</p>
-            <button type="button" class="skp-danger" data-action="remove-api-key">Remove API Key</button>
           </section>
           <section class="skp-view" data-view="dashboard" hidden>
             <div class="skp-status-row">
               <p class="skp-meta" id="skp-refresh-status">Waiting for data refresh.</p>
-              <button type="button" class="skp-ghost" data-action="refresh-data">Refresh</button>
             </div>
             <div class="skp-grid">
               <article class="skp-card">
@@ -282,7 +344,7 @@ function createPanel() {
               <section class="skp-detail-card">
                 <h3>Sales Order Snapshot</h3>
                 <dl>
-                  <div><dt>External ID</dt><dd id="skp-order-external-id">-</dd></div>
+                  <div><dt>Invoice #</dt><dd id="skp-order-external-id">-</dd></div>
                   <div><dt>Tracking number</dt><dd id="skp-order-tracking-number">-</dd></div>
                   <div><dt>Ship method</dt><dd id="skp-order-ship-method">-</dd></div>
                 </dl>
@@ -316,6 +378,16 @@ function createPanel() {
           <pre id="${PANEL_DEBUG_LOG_ID}" class="skp-debug-log"></pre>
         </aside>
       </div>
+      <div class="skp-modal-backdrop" id="skp-remove-api-key-modal" hidden aria-hidden="true">
+        <div class="skp-modal-card" role="dialog" aria-modal="true" aria-labelledby="skp-remove-api-key-title">
+          <h3 id="skp-remove-api-key-title">Remove API Key?</h3>
+          <p class="skp-copy">This clears the stored Singularity API keys from the extension and returns the panel to the credentials screen.</p>
+          <div class="skp-modal-actions">
+            <button type="button" class="skp-ghost" data-action="cancel-remove-api-key">Cancel</button>
+            <button type="button" class="skp-danger" data-action="confirm-remove-api-key">Remove API Key</button>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -326,6 +398,7 @@ function createPanel() {
     host,
     shell: root.querySelector(".skp-shell"),
     header: root.querySelector(".skp-header"),
+    headerActionGroup: root.querySelector(".skp-header-panel-actions"),
     minimizeButton: root.querySelector('[data-action="toggle-minimize"]'),
     authView: root.querySelector('[data-view="auth"]'),
     verifiedView: root.querySelector('[data-view="verified"]'),
@@ -353,12 +426,20 @@ function createPanel() {
     orderExternalId: root.querySelector("#skp-order-external-id"),
     orderTrackingNumber: root.querySelector("#skp-order-tracking-number"),
     orderShipMethod: root.querySelector("#skp-order-ship-method"),
-    panelDebugLog: root.querySelector(`#${PANEL_DEBUG_LOG_ID}`)
+    panelDebugLog: root.querySelector(`#${PANEL_DEBUG_LOG_ID}`),
+    removeCredentialsModal: root.querySelector("#skp-remove-api-key-modal")
   };
   updateKatanaDebugLog();
   updateKatanaPanelMinimizedState();
+  updateHeaderActionVisibility();
+  updateRemoveCredentialsModalState();
 
   root.addEventListener("click", async (event) => {
+    if (event.target === elements.removeCredentialsModal) {
+      closeRemoveCredentialsModal();
+      return;
+    }
+
     const action = event.target.closest("[data-action]")?.dataset.action;
 
     if (action === "toggle-minimize") {
@@ -370,6 +451,16 @@ function createPanel() {
     if (action === "refresh-data") {
       pushKatanaDebug("Refresh requested");
       await loadPanelData({ preserveView: true });
+      return;
+    }
+
+    if (action === "open-remove-api-key-modal") {
+      openRemoveCredentialsModal();
+      return;
+    }
+
+    if (action === "cancel-remove-api-key") {
+      closeRemoveCredentialsModal();
       return;
     }
 
@@ -387,7 +478,8 @@ function createPanel() {
       return;
     }
 
-    if (action === "remove-api-key") {
+    if (action === "confirm-remove-api-key") {
+      closeRemoveCredentialsModal();
       pushKatanaDebug("Removing stored API key");
       elements.verifiedStatus.textContent = "Removing stored API key...";
       const result = await sendRuntimeMessage({ action: "clearCredentials" });
@@ -398,6 +490,12 @@ function createPanel() {
       }
 
       window.location.reload();
+    }
+  });
+
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isRemoveCredentialsModalOpen) {
+      closeRemoveCredentialsModal();
     }
   });
 
@@ -471,6 +569,32 @@ function createPanel() {
   return elements;
 }
 
+function schedulePanelBootstrapRetry(delayMs = 250) {
+  window.clearTimeout(panelBootstrapRetryTimeoutId);
+  panelBootstrapRetryTimeoutId = window.setTimeout(() => {
+    bootstrapPanel().catch((error) => {
+      console.error("Katana panel retry failed.", error);
+    });
+  }, delayMs);
+}
+
+function schedulePanelPresenceCheck() {
+  if (!isTargetUrl(window.location.href)) {
+    return;
+  }
+
+  window.clearTimeout(panelPresenceCheckTimeoutId);
+  panelPresenceCheckTimeoutId = window.setTimeout(() => {
+    if (panelBootstrapInProgress || document.getElementById(PANEL_HOST_ID)) {
+      return;
+    }
+
+    bootstrapPanel().catch((error) => {
+      console.error("Katana panel presence recovery failed.", error);
+    });
+  }, 150);
+}
+
 function setManualOrderCollapsedState(isCollapsed) {
   isManualOrderCollapsed = Boolean(isCollapsed);
 
@@ -485,11 +609,14 @@ function setManualOrderCollapsedState(isCollapsed) {
 }
 
 function setView(viewName) {
+  currentPanelView = viewName;
   elements.authView.hidden = viewName !== "auth";
   elements.verifiedView.hidden = viewName !== "verified";
   elements.dashboardView.hidden = viewName !== "dashboard";
   elements.manualOrderSection.hidden = viewName === "auth";
   setManualOrderCollapsedState(isManualOrderCollapsed);
+  updateHeaderActionVisibility();
+  updateRemoveCredentialsModalState();
 }
 
 function showAuthView(message) {
@@ -529,7 +656,7 @@ function renderPanelData(result) {
   elements.contactName.textContent = String(result.customer.contactName || result.salesOrder.contactName);
   elements.orderTotal.textContent = String(result.salesOrder.totalValue);
   elements.orderStatus.textContent = String(result.salesOrder.status);
-  elements.customerAssignedTo.textContent = String(result.customer.assignedTo);
+  elements.customerAssignedTo.textContent = String(result.salesOrder.assignedTo || result.customer.assignedTo);
   elements.customerPhone.textContent = String(result.customer.phone);
   setLinkedValue(elements.customerEmail, result.customer.email || result.salesOrder.customerEmail);
   elements.orderExternalId.textContent = String(result.salesOrder.externalId);
@@ -960,26 +1087,40 @@ function bootstrapMethodMode() {
 }
 
 async function bootstrapPanel() {
-  if (!isTargetUrl(window.location.href)) {
+  if (!isTargetUrl(window.location.href) || panelBootstrapInProgress) {
     return;
   }
 
-  createPanel();
+  const panel = createPanel();
 
-  const authState = await sendRuntimeMessage({ action: "getAuthState" });
-  lastVerifiedAt = authState.verifiedAt ?? null;
+  if (!panel) {
+    schedulePanelBootstrapRetry();
+    return;
+  }
 
-  if (authState.isVerified) {
-    showVerifiedSplash(authState.verifiedAt, "Loading customer and sales order data...");
-    await loadPanelData({ preserveView: false });
-  } else {
-    showAuthView("No verified key pair stored.");
+  panelBootstrapInProgress = true;
+
+  try {
+    const authState = await sendRuntimeMessage({ action: "getAuthState" });
+    lastVerifiedAt = authState.verifiedAt ?? null;
+
+    if (authState.isVerified) {
+      showVerifiedSplash(authState.verifiedAt, "Loading customer and sales order data...");
+      await loadPanelData({ preserveView: false });
+    } else {
+      showAuthView("No verified key pair stored.");
+    }
+  } finally {
+    panelBootstrapInProgress = false;
   }
 }
 
 function watchUrlChanges() {
   const observer = new MutationObserver(async () => {
     if (window.location.href === currentUrl) {
+      if (isTargetUrl(currentUrl)) {
+        schedulePanelPresenceCheck();
+      }
       return;
     }
 
@@ -993,6 +1134,8 @@ function watchUrlChanges() {
       elements.host.remove();
       elements = null;
       window.clearTimeout(methodScanTimeoutId);
+      window.clearTimeout(panelBootstrapRetryTimeoutId);
+      window.clearTimeout(panelPresenceCheckTimeoutId);
     }
   });
 

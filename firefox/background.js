@@ -316,14 +316,31 @@ function formatAddress(record, prefix) {
   return lines.length ? lines.join(", ") : "N/A";
 }
 
+function normalizeDisplayText(value, fallback) {
+  if (value == null) {
+    return fallback;
+  }
+
+  const normalized = String(value)
+    .split(/\s+/)
+    .filter((part) => part && part.toLowerCase() !== "none")
+    .join(" ")
+    .trim();
+
+  return normalized || fallback;
+}
+
 function summarizeCustomer(customer = {}) {
   const fullName = customer.fullname
     ?? [customer.firstname, customer.lastname].filter(Boolean).join(" ").trim();
 
   return {
-    companyName: customer.companyname ?? "Unknown company",
-    contactName: fullName || "Unknown contact",
-    assignedTo: customer.assignedto ?? "Unassigned",
+    companyName: normalizeDisplayText(customer.companyname, "Unknown company"),
+    contactName: normalizeDisplayText(fullName, "Unknown"),
+    assignedTo: normalizeDisplayText(
+      customer.assigned_user?.display_name ?? customer.assignedto_display_name,
+      "Unassigned"
+    ),
     email: customer.email ?? "N/A",
     phone: customer.phone ?? "N/A",
     recordId: customer.recordid ?? "N/A",
@@ -338,8 +355,8 @@ function summarizeCustomer(customer = {}) {
 
 function summarizeSalesOrder(order = {}) {
   return {
-    companyName: order.companyname ?? "Unknown company",
-    contactName: order.fullname ?? "Unknown contact",
+    companyName: normalizeDisplayText(order.companyname, "Unknown company"),
+    contactName: normalizeDisplayText(order.fullname, "Unknown"),
     totalValue: formatCurrencyAmount(order.total_cents, order.currency ?? "USD"),
     shippingCost: formatCurrencyAmount(order.shipping_cost_cents, order.currency ?? "USD"),
     status: order.status ?? "Unknown",
@@ -347,7 +364,7 @@ function summarizeSalesOrder(order = {}) {
     customerEmail: order.customer_email ?? "N/A",
     createdAt: order.created_at ?? "Unavailable",
     updatedAt: order.updated_at ?? "Unavailable",
-    assignedTo: order.assigned_to ?? "Unassigned",
+    assignedTo: normalizeDisplayText(order.assigned_user?.display_name, "Unassigned"),
     paymentDueDate: order.payment_due_date ?? "Unavailable",
     trackingNumber: order.tracking_number ?? "N/A",
     shipMethod: order.ship_method ?? "N/A",
