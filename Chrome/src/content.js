@@ -15,6 +15,8 @@ const METHOD_CLOSE_STOCK_CLASS = "skp-method-close-stock";
 const METHOD_DEBUG_HOST_ID = "skp-method-debug-host";
 const METHOD_DEBUG_LOG_ID = "skp-method-debug-log";
 const METHOD_DEBUG_TOGGLE_ID = "skp-method-debug-toggle";
+const METHOD_SYNC_CONTAINER_ID = "skp-method-sync-container";
+const METHOD_SYNC_STATUS_ID = "skp-method-sync-status";
 const METHOD_DEBUG_MAX_ENTRIES = 80;
 const DEBUG_PAYLOAD_MAX_LENGTH = 4000;
 
@@ -31,6 +33,13 @@ let methodDebugEntries = [];
 let methodScanInProgress = false;
 let methodScanQueued = false;
 let methodDebugMinimized = true;
+let methodRuntimeDisconnected = false;
+let methodLastSyncCheckKey = "";
+let methodSyncStatus = {
+  hidden: false,
+  tone: "neutral",
+  text: "Checking sync status..."
+};
 let panelBootstrapInProgress = false;
 let panelBootstrapRetryTimeoutId = null;
 let panelPresenceCheckTimeoutId = null;
@@ -45,8 +54,32 @@ function isMethodUrl(url) {
   return url.startsWith(METHOD_URL_PREFIX);
 }
 
-function sendRuntimeMessage(message) {
-  return runtimeApi.sendMessage(message);
+function isRuntimeConnectionError(error) {
+  const message = String(error?.message ?? error ?? "");
+  return /Receiving end does not exist|Could not establish connection/i.test(message);
+}
+
+async function sendRuntimeMessage(message) {
+  try {
+    console.debug("[Singularity] sendRuntimeMessage start", message);
+    const response = await runtimeApi.sendMessage(message);
+    console.debug("[Singularity] sendRuntimeMessage response", {
+      action: message?.action,
+      response
+    });
+    return response;
+  } catch (error) {
+    console.error("[Singularity] sendRuntimeMessage failed", {
+      action: message?.action,
+      error
+    });
+    if (isRuntimeConnectionError(error)) {
+      methodRuntimeDisconnected = true;
+      throw new Error("Extension background is unavailable. Reload the extension, then refresh this page.");
+    }
+
+    throw error;
+  }
 }
 
 function ensureMethodDebugWindow() {
@@ -60,9 +93,10 @@ function ensureMethodDebugWindow() {
   host.id = METHOD_DEBUG_HOST_ID;
   host.style.position = "fixed";
   host.style.left = "50%";
-  host.style.top = "50%";
-  host.style.transform = "translate(-50%, -50%)";
+  host.style.bottom = "16px";
+  host.style.transform = "translateX(-50%)";
   host.style.width = "360px";
+  host.style.maxWidth = "calc(100vw - 32px)";
   host.style.maxHeight = "45vh";
   host.style.zIndex = "2147483647";
   host.style.background = "rgba(18, 18, 18, 0.94)";
@@ -78,6 +112,10 @@ function ensureMethodDebugWindow() {
     <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.12);font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px;">
       <span>Singularity Debug</span>
       <button id="${METHOD_DEBUG_TOGGLE_ID}" type="button" style="border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.08);color:#f5f5f5;border-radius:6px;padding:2px 8px;cursor:pointer;">_</button>
+    </div>
+    <div id="${METHOD_SYNC_CONTAINER_ID}" style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.12);display:block;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;opacity:0.75;">Sync</div>
+      <div id="${METHOD_SYNC_STATUS_ID}" style="margin-top:4px;font-size:13px;font-weight:600;">Checking sync status...</div>
     </div>
     <div id="${METHOD_DEBUG_LOG_ID}" style="padding:8px 10px;overflow:auto;max-height:calc(45vh - 36px);white-space:pre-wrap;"></div>
   `;
@@ -129,6 +167,74 @@ function pushMethodDebug(message, detail = "") {
   }
 }
 
+function pushMethodRequestDebugTraces(debugTrace) {
+  if (!Array.isArray(debugTrace)) {
+    return;
+  }
+
+  for (const entry of debugTrace) {
+    if (entry) {
+      pushMethodDebug("Request", entry);
+    }
+  }
+}
+
+function ensureMethodSyncWindow() {
+  return ensureMethodDebugWindow();
+}
+
+function updateMethodSyncWindow() {
+  const host = document.getElementById(METHOD_DEBUG_HOST_ID);
+  const container = document.getElementById(METHOD_SYNC_CONTAINER_ID);
+  const statusElement = document.getElementById(METHOD_SYNC_STATUS_ID);
+
+  if (!host || !container || !statusElement) {
+    return;
+  }
+
+  if (methodSyncStatus.hidden) {
+    container.hidden = true;
+    return;
+  }
+
+  container.hidden = false;
+  statusElement.textContent = methodSyncStatus.text;
+
+  if (methodSyncStatus.tone === "success") {
+    container.style.background = "rgba(34, 197, 94, 0.14)";
+    container.style.color = "#dcfce7";
+    return;
+  }
+
+  if (methodSyncStatus.tone === "danger") {
+    container.style.background = "rgba(239, 68, 68, 0.16)";
+    container.style.color = "#fee2e2";
+    return;
+  }
+
+  container.style.background = "rgba(255, 255, 255, 0.04)";
+  container.style.color = "#e2e8f0";
+}
+
+function setMethodSyncStatus(status) {
+  methodSyncStatus = {
+    ...methodSyncStatus,
+    ...status
+  };
+  ensureMethodSyncWindow();
+  updateMethodSyncWindow();
+}
+
+function resetMethodSyncState() {
+  methodLastSyncCheckKey = "";
+  methodSyncStatus = {
+    hidden: false,
+    tone: "neutral",
+    text: "Checking sync status..."
+  };
+  updateMethodSyncWindow();
+}
+
 function formatDebugPayload(label, payload) {
   if (payload === undefined) {
     return `${label}: undefined`;
@@ -160,6 +266,36 @@ function isMethodInternalNode(node) {
     node.closest(`#${METHOD_DEBUG_HOST_ID}`) ||
     node.closest("#skp-method-highlight-styles")
   );
+}
+
+function extractMethodDocumentText() {
+  return extractMeaningfulText(document.body?.innerText ?? document.documentElement?.innerText ?? "");
+}
+
+function getMethodDocumentReference() {
+  const documentText = extractMethodDocumentText();
+  const estimateMatch = documentText.match(/\bEstimate\s*:\s*(\d+)\b/i);
+
+  if (estimateMatch) {
+    return {
+      type: "estimate",
+      invoiceNumber: estimateMatch[1]
+    };
+  }
+
+  const invoiceMatch = documentText.match(/\bInvoice\s*:\s*(\d+)\b/i);
+
+  if (invoiceMatch) {
+    return {
+      type: "invoice",
+      invoiceNumber: invoiceMatch[1]
+    };
+  }
+
+  return {
+    type: "unknown",
+    invoiceNumber: ""
+  };
 }
 
 function formatTimestamp(value) {
@@ -1242,6 +1378,7 @@ async function evaluateMethodRow(rowPrefix, rowIndex) {
       itemSku
     }
   });
+  pushMethodRequestDebugTraces(inventoryResult?.debugTrace);
 
   if (!inventoryResult?.ok) {
     pushMethodDebug(`${rowPrefix} row ${rowIndex}`, inventoryResult?.error ?? inventoryResult?.reason ?? "Inventory lookup failed");
@@ -1311,15 +1448,85 @@ async function scanMethodInvoiceRows() {
 
   if (!authState?.isVerified) {
     pushMethodDebug("Scan skipped", "No verified credentials");
+    setMethodSyncStatus({
+      hidden: false,
+      tone: "neutral",
+      text: "Sync check unavailable until Katana credentials are verified."
+    });
     methodScanInProgress = false;
     return;
   }
 
   ensureMethodHighlightStyles();
   ensureMethodDebugWindow();
+  ensureMethodSyncWindow();
   pushMethodDebug("Scan started", `Checking rows 0-${METHOD_ROW_LIMIT}`);
 
   try {
+    const documentReference = getMethodDocumentReference();
+    const syncCheckKey = `${window.location.href}::${documentReference.type}::${documentReference.invoiceNumber}`;
+
+    if (documentReference.type === "estimate") {
+      setMethodSyncStatus({
+        hidden: false,
+        tone: "success",
+        text: `✓ Synced. Found ${documentReference.invoiceNumber}.`
+      });
+      pushMethodDebug("Sync status", `Marked synced for estimate ${documentReference.invoiceNumber}`);
+    } else if (!documentReference.invoiceNumber) {
+      setMethodSyncStatus({
+        hidden: false,
+        tone: "danger",
+        text: "✕ Not Synced. Invoice number was not found on the page."
+      });
+      pushMethodDebug("Sync status", "Invoice number not found on page");
+      methodLastSyncCheckKey = syncCheckKey;
+    } else if (methodLastSyncCheckKey === syncCheckKey) {
+      pushMethodDebug("Sync status", `Using cached sync status for Invoice: ${documentReference.invoiceNumber}`);
+    } else {
+      methodLastSyncCheckKey = syncCheckKey;
+      setMethodSyncStatus({
+        hidden: false,
+        tone: "neutral",
+        text: `Checking sync for Invoice: ${documentReference.invoiceNumber}...`
+      });
+
+      const syncResult = await sendRuntimeMessage({
+        action: "checkMethodOrderSync",
+        payload: {
+          invoiceNumber: documentReference.invoiceNumber
+        }
+      });
+      console.debug("[Singularity] sync check result", {
+        invoiceNumber: documentReference.invoiceNumber,
+        syncResult
+      });
+      pushMethodRequestDebugTraces(syncResult?.debugTrace);
+
+      if (!syncResult?.ok) {
+        setMethodSyncStatus({
+          hidden: false,
+          tone: "danger",
+          text: `✕ Not Synced. ${syncResult?.error ?? "Sync check failed."}`
+        });
+        pushMethodDebug("Sync status failed", syncResult?.error ?? "Unknown sync check failure");
+      } else if (syncResult.status === "hidden" || syncResult.status === "synced") {
+        setMethodSyncStatus({
+          hidden: false,
+          tone: "success",
+          text: `✓ Synced. Found ${syncResult.matchedExternalId ?? documentReference.invoiceNumber}.`
+        });
+        pushMethodDebug("Sync status", `Synced via ${syncResult.matchedExternalId ?? documentReference.invoiceNumber}`);
+      } else {
+        setMethodSyncStatus({
+          hidden: false,
+          tone: "danger",
+          text: `✕ Not Synced. No sales order found for Invoice: ${documentReference.invoiceNumber}.`
+        });
+        pushMethodDebug("Sync status", `No sales order found for Invoice: ${documentReference.invoiceNumber}`);
+      }
+    }
+
     const tasks = [];
 
     for (const rowPrefix of METHOD_ROW_PREFIXES) {
@@ -1341,11 +1548,23 @@ async function scanMethodInvoiceRows() {
 }
 
 function scheduleMethodRowScan() {
+  if (methodRuntimeDisconnected) {
+    pushMethodDebug("Scan paused", "Background connection is unavailable");
+    return;
+  }
+
   window.clearTimeout(methodScanTimeoutId);
   pushMethodDebug("Scan scheduled", `${METHOD_SCAN_DEBOUNCE_MS}ms debounce`);
   methodScanTimeoutId = window.setTimeout(() => {
     scanMethodInvoiceRows().catch((error) => {
       pushMethodDebug("Scan failed", error.message);
+      if (isRuntimeConnectionError(error) || /background is unavailable/i.test(String(error?.message ?? ""))) {
+        setMethodSyncStatus({
+          hidden: false,
+          tone: "danger",
+          text: error.message
+        });
+      }
       console.error("Method inventory scan failed.", error);
     });
   }, METHOD_SCAN_DEBOUNCE_MS);
@@ -1356,6 +1575,8 @@ function bootstrapMethodMode() {
     return;
   }
 
+  methodRuntimeDisconnected = false;
+  resetMethodSyncState();
   scheduleMethodRowScan();
 }
 
@@ -1409,6 +1630,7 @@ function watchUrlChanges() {
       window.clearTimeout(methodScanTimeoutId);
       window.clearTimeout(panelBootstrapRetryTimeoutId);
       window.clearTimeout(panelPresenceCheckTimeoutId);
+      resetMethodSyncState();
     }
   });
 

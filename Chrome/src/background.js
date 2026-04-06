@@ -3,6 +3,16 @@ import { decryptJson, encryptJson, getOrCreateEncryptionKey } from "./crypto.js"
 
 const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
 const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storage.local;
+const actionApi = globalThis.browser?.action
+  ?? globalThis.chrome?.action
+  ?? globalThis.browser?.browserAction
+  ?? globalThis.chrome?.browserAction;
+
+if (actionApi?.onClicked?.addListener && runtimeApi?.openOptionsPage) {
+  actionApi.onClicked.addListener(() => {
+    runtimeApi.openOptionsPage();
+  });
+}
 
 async function getEncryptionKeyMaterial() {
   return getOrCreateEncryptionKey(storageApi, STORAGE_KEYS.encryptionKey);
@@ -118,7 +128,87 @@ function getErrorDetail(payload) {
   return trimmed;
 }
 
-async function fetchJson(url, options) {
+function isSensitiveDebugParam(key) {
+  return /(key|secret|token|auth|password|signature)/i.test(String(key ?? ""));
+}
+
+function sanitizeUrlForDebug(url) {
+  try {
+    const parsedUrl = new URL(url);
+    const searchParamKeys = [...parsedUrl.searchParams.keys()];
+
+    for (const key of searchParamKeys) {
+      if (isSensitiveDebugParam(key)) {
+        parsedUrl.searchParams.set(key, "[redacted]");
+      }
+    }
+
+    return parsedUrl.toString();
+  } catch {
+    return String(url ?? "");
+  }
+}
+
+function appendRequestDebugTrace(debugTrace, url, options = {}) {
+  if (!Array.isArray(debugTrace)) {
+    return;
+  }
+
+  const method = String(options.method ?? "GET").toUpperCase();
+
+  if (method !== "GET") {
+    return;
+  }
+
+  debugTrace.push(`${method} ${sanitizeUrlForDebug(url)}`);
+}
+
+function summarizeDebugPayload(payload) {
+  if (payload === undefined) {
+    return "undefined";
+  }
+
+  if (payload === null) {
+    return "null";
+  }
+
+  let summary = "";
+
+  if (typeof payload === "string") {
+    summary = payload;
+  } else {
+    try {
+      summary = JSON.stringify(payload);
+    } catch {
+      summary = String(payload);
+    }
+  }
+
+  const singleLineSummary = summary.replace(/\s+/g, " ").trim();
+  return singleLineSummary.length > 400
+    ? `${singleLineSummary.slice(0, 400)}...`
+    : singleLineSummary;
+}
+
+function appendResponseDebugTrace(debugTrace, url, response, payload) {
+  if (!Array.isArray(debugTrace)) {
+    return;
+  }
+
+  const method = String(response?.url ? "GET" : "GET").toUpperCase();
+
+  if (method !== "GET") {
+    return;
+  }
+
+  debugTrace.push(
+    `${response.status} ${response.statusText || "Response"} ${sanitizeUrlForDebug(response.url || url)}`
+  );
+  debugTrace.push(`Response body: ${summarizeDebugPayload(payload)}`);
+}
+
+async function fetchJson(url, options, debugTrace) {
+  appendRequestDebugTrace(debugTrace, url, options);
   const response = await fetch(url, options);
   const responseText = await response.text();
   let payload = {};
@@ -130,6 +220,14 @@ async function fetchJson(url, options) {
       payload = responseText;
     }
   }
+
+  appendResponseDebugTrace(debugTrace, url, response, payload);
+  console.debug("[Singularity] GET response", {
+    url: sanitizeUrlForDebug(response.url || url),
+    status: response.status,
+    ok: response.ok,
+    bodyPreview: summarizeDebugPayload(payload)
+  });
 
   if (!response.ok) {
     const detail = getErrorDetail(payload);
@@ -376,6 +474,30 @@ async function fetchSalesOrderRecord(salesOrderId, orderNumber, headers) {
   throw new Error(`No sales order matched Katana ID "${salesOrderId || "N/A"}" or order number "${orderNumber || "N/A"}".`);
 }
 
+async function fetchSalesOrderByExternalId(externalId, headers) {
+  const debugTrace = [];
+  const payload = await fetchJson(
+    buildUrlWithParams(API_CONFIG.salesOrdersUrl, {
+      external_id: externalId,
+      sort: "updated_at",
+      dir: "desc",
+      limit: 1
+    }),
+    {
+      method: "GET",
+      headers
+    },
+    debugTrace
+  );
+  const rows = normalizeQueryRows(payload);
+
+  return {
+    record: rows[0] ?? null,
+    payload: clonePayload(payload),
+    debugTrace
+  };
+}
+
 function buildCustomerLookupParams(customerToken, salesOrder) {
   const recordId = salesOrder?.customer_recordid ?? customerToken ?? "";
   const customerEmail = salesOrder?.customer_email ?? "";
@@ -454,6 +576,77 @@ async function fetchPanelData(pageUrl, orderNumber = "") {
   };
 }
 
+async function checkMethodOrderSync(invoiceNumber = "") {
+  const { credentials } = await getStoredCredentials();
+  console.debug("[Singularity] checkMethodOrderSync start", {
+    invoiceNumber: String(invoiceNumber ?? "").trim(),
+    hasCredentials: Boolean(credentials)
+  });
+
+  if (!credentials) {
+    return {
+      ok: false,
+      reason: "missing_credentials",
+      error: "Sync check unavailable until Katana credentials are verified."
+    };
+  }
+
+  const normalizedInvoiceNumber = String(invoiceNumber ?? "").trim();
+
+  if (!normalizedInvoiceNumber) {
+    return {
+      ok: true,
+      status: "not_synced"
+    };
+  }
+
+  assertConfiguredEndpoint(API_CONFIG.salesOrdersUrl, "Sales orders");
+  const headers = buildAuthHeaders(credentials);
+  const invoiceExternalId = normalizedInvoiceNumber;
+  const estimateExternalId = normalizedInvoiceNumber;
+  const [invoiceLookup, estimateLookup] = await Promise.all([
+    fetchSalesOrderByExternalId(invoiceExternalId, headers),
+    fetchSalesOrderByExternalId(estimateExternalId, headers)
+  ]);
+  const debugTrace = [
+    ...(invoiceLookup.debugTrace ?? []),
+    ...(estimateLookup.debugTrace ?? [])
+  ];
+  console.debug("[Singularity] checkMethodOrderSync lookup results", {
+    invoiceNumber: normalizedInvoiceNumber,
+    invoiceMatched: Boolean(invoiceLookup.record),
+    estimateMatched: Boolean(estimateLookup.record),
+    debugTrace
+  });
+
+  if (estimateLookup.record) {
+    return {
+      ok: true,
+      status: "hidden",
+      invoiceNumber: normalizedInvoiceNumber,
+      matchedExternalId: estimateExternalId,
+      debugTrace
+    };
+  }
+
+  if (invoiceLookup.record) {
+    return {
+      ok: true,
+      status: "synced",
+      invoiceNumber: normalizedInvoiceNumber,
+      matchedExternalId: invoiceExternalId,
+      debugTrace
+    };
+  }
+
+  return {
+    ok: true,
+    status: "not_synced",
+    invoiceNumber: normalizedInvoiceNumber,
+    debugTrace
+  };
+}
+
 function normalizeSku(value) {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -482,18 +675,21 @@ async function fetchInventoryBySku(itemSku) {
   const itemUrl = buildUrlWithParams(API_CONFIG.inventoryUrl, {
     itemsku: itemSku
   });
+  const debugTrace = [];
   const inventoryPayload = await fetchJson(
     itemUrl,
     {
       method: "GET",
       headers
-    }
+    },
+    debugTrace
   );
   const inventoryRecord = inventoryPayload?.item ?? null;
 
   return {
     ok: true,
     apiPayload: clonePayload(inventoryPayload),
+    debugTrace,
     inventory: inventoryRecord && normalizeSku(inventoryRecord?.itemsku) === normalizedSku
       ? inventoryRecord
       : null
@@ -759,6 +955,19 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
       case "fetchInventoryBySku": {
         const inventoryData = await fetchInventoryBySku(message.payload?.itemSku ?? "");
         sendResponse(inventoryData);
+        break;
+      }
+      case "checkMethodOrderSync": {
+        console.debug("[Singularity] runtime message received", {
+          action,
+          invoiceNumber: message.payload?.invoiceNumber ?? ""
+        });
+        const syncStatus = await checkMethodOrderSync(message.payload?.invoiceNumber ?? "");
+        console.debug("[Singularity] runtime message response", {
+          action,
+          syncStatus
+        });
+        sendResponse(syncStatus);
         break;
       }
       case "getWooCommerceSites": {
