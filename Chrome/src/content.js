@@ -38,7 +38,8 @@ let methodLastSyncCheckKey = "";
 let methodSyncStatus = {
   hidden: false,
   tone: "neutral",
-  text: "Checking sync status..."
+  text: "Checking sync status...",
+  summaryText: "Checking Sync - Singularity Debug"
 };
 let panelBootstrapInProgress = false;
 let panelBootstrapRetryTimeoutId = null;
@@ -133,15 +134,23 @@ function updateMethodDebugWindow() {
   const host = document.getElementById(METHOD_DEBUG_HOST_ID);
   const logElement = document.getElementById(METHOD_DEBUG_LOG_ID);
   const toggleButton = document.getElementById(METHOD_DEBUG_TOGGLE_ID);
+  const syncContainer = document.getElementById(METHOD_SYNC_CONTAINER_ID);
+  const statusElement = document.getElementById(METHOD_SYNC_STATUS_ID);
 
-  if (!host || !logElement || !toggleButton) {
+  if (!host || !logElement || !toggleButton || !syncContainer || !statusElement) {
     return;
   }
 
   host.style.width = methodDebugMinimized ? "180px" : "360px";
   logElement.style.display = methodDebugMinimized ? "none" : "block";
+  syncContainer.style.padding = methodDebugMinimized ? "8px 10px" : "8px 10px";
+  statusElement.style.marginTop = methodDebugMinimized ? "0" : "4px";
+  statusElement.style.whiteSpace = methodDebugMinimized ? "nowrap" : "normal";
+  statusElement.style.overflow = methodDebugMinimized ? "hidden" : "visible";
+  statusElement.style.textOverflow = methodDebugMinimized ? "ellipsis" : "clip";
   toggleButton.textContent = methodDebugMinimized ? "+" : "_";
   toggleButton.title = methodDebugMinimized ? "Expand debug window" : "Minimize debug window";
+  updateMethodSyncWindow();
 }
 
 function pushMethodDebug(message, detail = "") {
@@ -198,7 +207,9 @@ function updateMethodSyncWindow() {
   }
 
   container.hidden = false;
-  statusElement.textContent = methodSyncStatus.text;
+  statusElement.textContent = methodDebugMinimized
+    ? methodSyncStatus.summaryText || methodSyncStatus.text
+    : methodSyncStatus.text;
 
   if (methodSyncStatus.tone === "success") {
     container.style.background = "rgba(34, 197, 94, 0.14)";
@@ -230,7 +241,8 @@ function resetMethodSyncState() {
   methodSyncStatus = {
     hidden: false,
     tone: "neutral",
-    text: "Checking sync status..."
+    text: "Checking sync status...",
+    summaryText: "Checking Sync - Singularity Debug"
   };
   updateMethodSyncWindow();
 }
@@ -1451,7 +1463,8 @@ async function scanMethodInvoiceRows() {
     setMethodSyncStatus({
       hidden: false,
       tone: "neutral",
-      text: "Sync check unavailable until Katana credentials are verified."
+      text: "Sync check unavailable until Katana credentials are verified.",
+      summaryText: "Sync Unavailable - Singularity Debug"
     });
     methodScanInProgress = false;
     return;
@@ -1470,14 +1483,16 @@ async function scanMethodInvoiceRows() {
       setMethodSyncStatus({
         hidden: false,
         tone: "success",
-        text: `✓ Synced. Found ${documentReference.invoiceNumber}.`
+        text: `✓ Synced. Found ${documentReference.invoiceNumber}.`,
+        summaryText: "Synced - Singularity Debug"
       });
       pushMethodDebug("Sync status", `Marked synced for estimate ${documentReference.invoiceNumber}`);
     } else if (!documentReference.invoiceNumber) {
       setMethodSyncStatus({
         hidden: false,
         tone: "danger",
-        text: "✕ Not Synced. Invoice number was not found on the page."
+        text: "✕ Not Synced. Invoice number was not found on the page.",
+        summaryText: "Not Synced - Singularity Debug"
       });
       pushMethodDebug("Sync status", "Invoice number not found on page");
       methodLastSyncCheckKey = syncCheckKey;
@@ -1488,7 +1503,8 @@ async function scanMethodInvoiceRows() {
       setMethodSyncStatus({
         hidden: false,
         tone: "neutral",
-        text: `Checking sync for Invoice: ${documentReference.invoiceNumber}...`
+        text: `Checking sync for Invoice: ${documentReference.invoiceNumber}...`,
+        summaryText: "Checking Sync - Singularity Debug"
       });
 
       const syncResult = await sendRuntimeMessage({
@@ -1507,21 +1523,24 @@ async function scanMethodInvoiceRows() {
         setMethodSyncStatus({
           hidden: false,
           tone: "danger",
-          text: `✕ Not Synced. ${syncResult?.error ?? "Sync check failed."}`
+          text: `✕ Not Synced. ${syncResult?.error ?? "Sync check failed."}`,
+          summaryText: "Not Synced - Singularity Debug"
         });
         pushMethodDebug("Sync status failed", syncResult?.error ?? "Unknown sync check failure");
       } else if (syncResult.status === "hidden" || syncResult.status === "synced") {
         setMethodSyncStatus({
           hidden: false,
           tone: "success",
-          text: `✓ Synced. Found ${syncResult.matchedExternalId ?? documentReference.invoiceNumber}.`
+          text: `✓ Synced. Found ${syncResult.matchedExternalId ?? documentReference.invoiceNumber}.`,
+          summaryText: "Synced - Singularity Debug"
         });
         pushMethodDebug("Sync status", `Synced via ${syncResult.matchedExternalId ?? documentReference.invoiceNumber}`);
       } else {
         setMethodSyncStatus({
           hidden: false,
           tone: "danger",
-          text: `✕ Not Synced. No sales order found for Invoice: ${documentReference.invoiceNumber}.`
+          text: `✕ Not Synced. No sales order found for Invoice: ${documentReference.invoiceNumber}.`,
+          summaryText: "Not Synced - Singularity Debug"
         });
         pushMethodDebug("Sync status", `No sales order found for Invoice: ${documentReference.invoiceNumber}`);
       }
