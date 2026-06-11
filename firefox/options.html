@@ -53,6 +53,44 @@
         <section class="settings-section">
           <div class="section-heading">
             <div>
+              <p class="section-kicker">[features]</p>
+              <h2>Feature Controls</h2>
+              <p class="copy compact">Choose which browser-side tools run after matching pages load.</p>
+            </div>
+          </div>
+
+          <form id="features-form" class="feature-form">
+            <label class="toggle-row">
+              <span class="toggle-copy">
+                <strong>Method side</strong>
+                <small>Inventory highlighting and sync status on Method pages.</small>
+              </span>
+              <input type="checkbox" name="methodEnabled" />
+            </label>
+            <label class="toggle-row">
+              <span class="toggle-copy">
+                <strong>Katana side</strong>
+                <small>Sales order intelligence panel on Katana sales orders.</small>
+              </span>
+              <input type="checkbox" name="katanaEnabled" />
+            </label>
+            <label class="toggle-row">
+              <span class="toggle-copy">
+                <strong>Google Maps CRM add</strong>
+                <small>Add visible business emails from Google Maps to Singularity CRM.</small>
+              </span>
+              <input type="checkbox" name="googleMapsCrmEnabled" />
+            </label>
+            <div class="actions">
+              <button type="submit">Save Features</button>
+            </div>
+          </form>
+          <p class="status" id="features-status">Feature settings are loading.</p>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-heading">
+            <div>
               <p class="section-kicker">[stores]</p>
               <h2>WooCommerce Sites</h2>
               <p class="copy compact">Add each store once. Manual lookup will search them in order until it finds a matching order number.</p>

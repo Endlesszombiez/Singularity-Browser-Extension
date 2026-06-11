@@ -9,8 +9,24 @@ const STORAGE_KEYS = {
   credentials: "encryptedCredentials",
   wooCommerceSites: "encryptedWooCommerceSites",
   encryptionKey: "localEncryptionKey",
-  onboarding: "verificationState"
+  onboarding: "verificationState",
+  featureSettings: "featureSettings"
 };
+
+const DEFAULT_FEATURE_SETTINGS = {
+  methodEnabled: true,
+  katanaEnabled: true,
+  googleMapsCrmEnabled: false
+};
+
+const WEBSITE_EMAIL_SCAN_MAX_BYTES = 250000;
+const WEBSITE_EMAIL_SCAN_TIMEOUT_MS = 8000;
+const WEBSITE_EMAIL_SCAN_PATH_HINTS = [
+  "/contact",
+  "/contact-us",
+  "/about",
+  "/about-us"
+];
 
 const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
 const storageApi = globalThis.browser?.storage.local ?? globalThis.chrome.storage.local;
@@ -149,6 +165,37 @@ async function getWooCommerceSites() {
 
 async function storeWooCommerceSites(sites) {
   await writeEncryptedStorage(STORAGE_KEYS.wooCommerceSites, sites);
+}
+
+async function getFeatureSettings() {
+  const stored = await storageApi.get(STORAGE_KEYS.featureSettings);
+  const featureSettings = stored[STORAGE_KEYS.featureSettings] ?? {};
+
+  return {
+    ...DEFAULT_FEATURE_SETTINGS,
+    ...Object.fromEntries(
+      Object.entries(featureSettings).filter(([, value]) => typeof value === "boolean")
+    )
+  };
+}
+
+async function saveFeatureSettings(nextSettings = {}) {
+  const existingSettings = await getFeatureSettings();
+  const featureSettings = {
+    ...existingSettings,
+    methodEnabled: typeof nextSettings.methodEnabled === "boolean"
+      ? nextSettings.methodEnabled
+      : existingSettings.methodEnabled,
+    katanaEnabled: typeof nextSettings.katanaEnabled === "boolean"
+      ? nextSettings.katanaEnabled
+      : existingSettings.katanaEnabled,
+    googleMapsCrmEnabled: typeof nextSettings.googleMapsCrmEnabled === "boolean"
+      ? nextSettings.googleMapsCrmEnabled
+      : existingSettings.googleMapsCrmEnabled
+  };
+
+  await storageApi.set({ [STORAGE_KEYS.featureSettings]: featureSettings });
+  return featureSettings;
 }
 
 function isPlaceholderEndpoint(url) {
@@ -325,6 +372,35 @@ async function fetchJson(url, options, debugTrace) {
     error.status = response.status;
     error.payload = payload;
     throw error;
+  }
+
+  return payload;
+}
+
+async function postJson(url, body, headers = {}) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  const responseText = await response.text();
+  let payload = {};
+
+  if (responseText) {
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      payload = responseText;
+    }
+  }
+
+  if (!response.ok) {
+    const detail = getErrorDetail(payload);
+    const suffix = detail ? `: ${detail}` : ".";
+    throw new Error(`Customer create failed with status ${response.status}${suffix}`);
   }
 
   return payload;
@@ -625,6 +701,206 @@ async function fetchCustomerRecord(customerToken, salesOrder, headers) {
   return {
     record: rows[0] ?? null,
     payload: clonePayload(payload)
+  };
+}
+
+function normalizeEmail(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function findEmailInText(value) {
+  const match = String(value ?? "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return normalizeEmail(match?.[0] ?? "");
+}
+
+function normalizeWebsiteUrl(value) {
+  const rawValue = String(value ?? "").trim();
+
+  if (!rawValue) {
+    throw new Error("A website URL is required.");
+  }
+
+  const url = new URL(/^https?:\/\//i.test(rawValue) ? rawValue : `https://${rawValue}`);
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Only HTTP and HTTPS websites can be scanned.");
+  }
+
+  url.hash = "";
+  return url;
+}
+
+async function fetchWebsiteText(url) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), WEBSITE_EMAIL_SCAN_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Website returned status ${response.status}.`);
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType && !/text\/html|text\/plain|application\/xhtml\+xml/i.test(contentType)) {
+      throw new Error("Website did not return a readable page.");
+    }
+
+    return (await response.text()).slice(0, WEBSITE_EMAIL_SCAN_MAX_BYTES);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function getContactPageCandidates(baseUrl, html) {
+  const candidates = new Set();
+
+  for (const path of WEBSITE_EMAIL_SCAN_PATH_HINTS) {
+    candidates.add(new URL(path, baseUrl).toString());
+  }
+
+  const linkMatches = String(html ?? "").matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gis);
+
+  for (const match of linkMatches) {
+    const href = match?.[1] ?? "";
+    const label = match?.[2]?.replace(/<[^>]+>/g, " ") ?? "";
+
+    if (!/contact|about|support|team/i.test(`${href} ${label}`)) {
+      continue;
+    }
+
+    try {
+      const candidateUrl = new URL(href, baseUrl);
+
+      if (candidateUrl.origin === baseUrl.origin && ["http:", "https:"].includes(candidateUrl.protocol)) {
+        candidateUrl.hash = "";
+        candidates.add(candidateUrl.toString());
+      }
+    } catch {
+      // Ignore malformed links found in third-party websites.
+    }
+  }
+
+  return [...candidates].slice(0, 6);
+}
+
+async function findEmailOnWebsite(websiteUrl) {
+  const baseUrl = normalizeWebsiteUrl(websiteUrl);
+  const homeHtml = await fetchWebsiteText(baseUrl);
+  const homeEmail = findEmailInText(homeHtml);
+
+  if (homeEmail) {
+    return {
+      ok: true,
+      email: homeEmail,
+      sourceUrl: baseUrl.toString()
+    };
+  }
+
+  const contactUrls = getContactPageCandidates(baseUrl, homeHtml);
+  const errors = [];
+
+  for (const contactUrl of contactUrls) {
+    try {
+      const contactHtml = await fetchWebsiteText(new URL(contactUrl));
+      const contactEmail = findEmailInText(contactHtml);
+
+      if (contactEmail) {
+        return {
+          ok: true,
+          email: contactEmail,
+          sourceUrl: contactUrl
+        };
+      }
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+
+  return {
+    ok: false,
+    error: errors.length
+      ? `No contact email found. ${errors.slice(0, 2).join(" ")}`
+      : "No contact email found on the website."
+  };
+}
+
+function normalizeGoogleMapsCustomerPayload(payload = {}) {
+  const email = normalizeEmail(payload.email);
+  const companyName = normalizeDisplayText(payload.companyName, "");
+
+  if (!email) {
+    throw new Error("A contact email address is required before adding a Google Maps business.");
+  }
+
+  if (!companyName) {
+    throw new Error("A business name is required before adding a Google Maps business.");
+  }
+
+  return {
+    companyname: companyName,
+    email,
+    phone: normalizeDisplayText(payload.phone, ""),
+    website: normalizeDisplayText(payload.website, ""),
+    billing_line1: normalizeDisplayText(payload.address, ""),
+    source: "Google Maps",
+    source_url: normalizeDisplayText(payload.sourceUrl, "")
+  };
+}
+
+async function findCustomerByEmail(email, headers) {
+  const payload = await fetchJson(
+    buildUrlWithParams(API_CONFIG.customersUrl, {
+      email,
+      limit: 1
+    }),
+    {
+      method: "GET",
+      headers
+    }
+  );
+  const rows = normalizeQueryRows(payload);
+  const normalizedEmail = normalizeEmail(email);
+
+  return rows.find((row) => normalizeEmail(row?.email) === normalizedEmail) ?? rows[0] ?? null;
+}
+
+async function createCustomerFromGoogleMaps(payload = {}) {
+  const { credentials } = await getStoredCredentials();
+
+  if (!credentials) {
+    return {
+      ok: false,
+      status: "missing_credentials",
+      error: "Verify Singularity API keys before adding Google Maps businesses."
+    };
+  }
+
+  assertConfiguredEndpoint(API_CONFIG.customersUrl, "Customers");
+  const customerPayload = normalizeGoogleMapsCustomerPayload(payload);
+  const headers = buildAuthHeaders(credentials);
+  const existingCustomer = await findCustomerByEmail(customerPayload.email, headers);
+
+  if (existingCustomer) {
+    return {
+      ok: true,
+      status: "already_exists",
+      customer: summarizeCustomer(existingCustomer)
+    };
+  }
+
+  const createdPayload = await postJson(API_CONFIG.customersUrl, customerPayload, headers);
+
+  return {
+    ok: true,
+    status: "created",
+    customer: summarizeCustomer(Array.isArray(createdPayload) ? createdPayload[0] : createdPayload),
+    apiPayload: clonePayload(createdPayload)
   };
 }
 
@@ -1023,6 +1299,22 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
         });
         break;
       }
+      case "getFeatureSettings": {
+        const featureSettings = await getFeatureSettings();
+        sendResponse({
+          ok: true,
+          featureSettings
+        });
+        break;
+      }
+      case "saveFeatureSettings": {
+        const featureSettings = await saveFeatureSettings(message.payload ?? {});
+        sendResponse({
+          ok: true,
+          featureSettings
+        });
+        break;
+      }
       case "verifyAndStoreCredentials": {
         const { publicKey, secretKey } = message.payload ?? {};
         await verifyCredentials(publicKey, secretKey);
@@ -1087,6 +1379,16 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
       }
       case "lookupWooCommerceOrder": {
         const result = await fetchWooCommerceOrder(message.payload?.orderNumber ?? "");
+        sendResponse(result);
+        break;
+      }
+      case "createCustomerFromGoogleMaps": {
+        const result = await createCustomerFromGoogleMaps(message.payload ?? {});
+        sendResponse(result);
+        break;
+      }
+      case "findEmailOnWebsite": {
+        const result = await findEmailOnWebsite(message.payload?.website ?? "");
         sendResponse(result);
         break;
       }

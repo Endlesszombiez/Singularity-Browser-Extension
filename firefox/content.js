@@ -1,9 +1,12 @@
 const TARGET_URL_PREFIX = "https://factory.katanamrp.com/salesorder/";
 const METHOD_URL_PREFIX = "https://botanaway.method.me/apps/";
+const GOOGLE_MAPS_URL_PREFIX = "https://www.google.com/maps/";
 const runtimeApi = globalThis.browser?.runtime ?? globalThis.chrome.runtime;
 const PANEL_ID = "singularity-katana-panel-root";
 const PANEL_HOST_ID = "singularity-katana-panel-host";
 const PANEL_DEBUG_LOG_ID = "skp-panel-debug-log";
+const GOOGLE_MAPS_CRM_HOST_ID = "skp-google-maps-crm-host";
+const GOOGLE_MAPS_CRM_STATUS_ID = "skp-google-maps-crm-status";
 const ORDER_NUMBER_WAIT_MS = 10000;
 const ORDER_NUMBER_POLL_MS = 5000;
 const METHOD_ROW_LIMIT = 50;
@@ -46,6 +49,14 @@ let panelBootstrapRetryTimeoutId = null;
 let panelPresenceCheckTimeoutId = null;
 let isRemoveCredentialsModalOpen = false;
 let isWooCommerceModalOpen = false;
+let featureSettings = {
+  methodEnabled: true,
+  katanaEnabled: true,
+  googleMapsCrmEnabled: false
+};
+let googleMapsRenderTimeoutId = null;
+let lastGoogleMapsBusinessKey = "";
+let googleMapsWebsiteEmailCache = new Map();
 
 function isTargetUrl(url) {
   return url.startsWith(TARGET_URL_PREFIX);
@@ -53,6 +64,23 @@ function isTargetUrl(url) {
 
 function isMethodUrl(url) {
   return url.startsWith(METHOD_URL_PREFIX);
+}
+
+function isGoogleMapsUrl(url) {
+  return url.startsWith(GOOGLE_MAPS_URL_PREFIX);
+}
+
+async function refreshFeatureSettings() {
+  const result = await sendRuntimeMessage({ action: "getFeatureSettings" });
+
+  if (result?.ok) {
+    featureSettings = {
+      ...featureSettings,
+      ...result.featureSettings
+    };
+  }
+
+  return featureSettings;
 }
 
 function isRuntimeConnectionError(error) {
@@ -154,7 +182,7 @@ function updateMethodDebugWindow() {
 }
 
 function pushMethodDebug(message, detail = "") {
-  if (!isMethodUrl(window.location.href)) {
+  if (!isMethodUrl(window.location.href) || !featureSettings.methodEnabled) {
     return;
   }
 
@@ -879,7 +907,7 @@ function schedulePanelBootstrapRetry(delayMs = 250) {
 }
 
 function schedulePanelPresenceCheck() {
-  if (!isTargetUrl(window.location.href)) {
+  if (!isTargetUrl(window.location.href) || !featureSettings.katanaEnabled) {
     return;
   }
 
@@ -1567,6 +1595,10 @@ async function scanMethodInvoiceRows() {
 }
 
 function scheduleMethodRowScan() {
+  if (!featureSettings.methodEnabled) {
+    return;
+  }
+
   if (methodRuntimeDisconnected) {
     pushMethodDebug("Scan paused", "Background connection is unavailable");
     return;
@@ -1589,8 +1621,16 @@ function scheduleMethodRowScan() {
   }, METHOD_SCAN_DEBOUNCE_MS);
 }
 
-function bootstrapMethodMode() {
+async function bootstrapMethodMode() {
   if (!isMethodUrl(window.location.href)) {
+    return;
+  }
+
+  await refreshFeatureSettings();
+
+  if (!featureSettings.methodEnabled) {
+    window.clearTimeout(methodScanTimeoutId);
+    document.getElementById(METHOD_DEBUG_HOST_ID)?.remove();
     return;
   }
 
@@ -1601,6 +1641,14 @@ function bootstrapMethodMode() {
 
 async function bootstrapPanel() {
   if (!isTargetUrl(window.location.href) || panelBootstrapInProgress) {
+    return;
+  }
+
+  await refreshFeatureSettings();
+
+  if (!featureSettings.katanaEnabled) {
+    elements?.host?.remove();
+    elements = null;
     return;
   }
 
@@ -1628,6 +1676,231 @@ async function bootstrapPanel() {
   }
 }
 
+function normalizeMapsText(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function findVisibleEmail(container) {
+  const text = normalizeMapsText(container?.innerText ?? "");
+  const match = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0] ?? "";
+}
+
+function getMapsField(selector, attribute = "textContent") {
+  const element = document.querySelector(selector);
+  const value = attribute === "href" ? element?.href : element?.textContent;
+  return normalizeMapsText(value);
+}
+
+function extractGoogleMapsBusiness() {
+  const main = document.querySelector('[role="main"]') ?? document.body;
+  const companyName = normalizeMapsText(document.querySelector("h1")?.textContent);
+  const email = findVisibleEmail(main);
+  const website = getMapsField('a[data-item-id="authority"]', "href")
+    || getMapsField('a[aria-label*="Website" i]', "href");
+  const phone = getMapsField('button[data-item-id^="phone"]')
+    || getMapsField('[aria-label*="Phone" i]');
+  const address = getMapsField('button[data-item-id="address"]')
+    || getMapsField('[aria-label*="Address" i]');
+
+  return {
+    companyName,
+    email,
+    phone,
+    website,
+    address,
+    sourceUrl: window.location.href
+  };
+}
+
+function hasWebsiteEmailScanRequirements(business) {
+  return Boolean(business.phone && business.address && business.website);
+}
+
+function getGoogleMapsInsertTarget() {
+  return document.querySelector("h1")?.parentElement
+    ?? document.querySelector('[role="main"]')
+    ?? document.body;
+}
+
+function setGoogleMapsCrmStatus(message, tone = "neutral") {
+  const status = document.getElementById(GOOGLE_MAPS_CRM_STATUS_ID);
+
+  if (!status) {
+    return;
+  }
+
+  status.textContent = message;
+  status.dataset.tone = tone;
+}
+
+function removeGoogleMapsCrmControl() {
+  document.getElementById(GOOGLE_MAPS_CRM_HOST_ID)?.remove();
+  lastGoogleMapsBusinessKey = "";
+}
+
+function createGoogleMapsCrmControl(business) {
+  const host = document.createElement("section");
+  host.id = GOOGLE_MAPS_CRM_HOST_ID;
+  host.style.margin = "12px 0";
+  host.style.padding = "12px";
+  host.style.border = "1px solid rgba(0, 0, 0, 0.12)";
+  host.style.borderRadius = "8px";
+  host.style.background = "#fff";
+  host.style.boxShadow = "0 1px 4px rgba(0, 0, 0, 0.14)";
+  host.style.fontFamily = "Arial, sans-serif";
+  host.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div style="min-width:0;">
+        <div style="font-size:12px;font-weight:700;color:#1f1f1f;">Singularity CRM</div>
+        <div id="${GOOGLE_MAPS_CRM_STATUS_ID}" data-tone="neutral" style="margin-top:4px;font-size:12px;line-height:1.35;color:#5f6368;">${business.email ? `Ready to add ${business.email}.` : "Checking the business website for a contact email..."}</div>
+      </div>
+      <button type="button" ${business.email ? "" : "disabled"} style="border:0;border-radius:4px;padding:8px 10px;background:${business.email ? "#1a73e8" : "#dadce0"};color:${business.email ? "#fff" : "#5f6368"};font-size:12px;font-weight:700;cursor:${business.email ? "pointer" : "not-allowed"};white-space:nowrap;">Add to CRM</button>
+    </div>
+  `;
+
+  const button = host.querySelector("button");
+  const setButtonEnabled = (isEnabled) => {
+    button.disabled = !isEnabled;
+    button.style.background = isEnabled ? "#1a73e8" : "#dadce0";
+    button.style.color = isEnabled ? "#fff" : "#5f6368";
+    button.style.cursor = isEnabled ? "pointer" : "not-allowed";
+  };
+
+  const applyEmail = (email, sourceUrl = "") => {
+    business.email = email;
+    business.websiteEmailSourceUrl = sourceUrl;
+    setButtonEnabled(true);
+    setGoogleMapsCrmStatus(`Ready to add ${email}.`, "success");
+  };
+
+  const scanWebsiteForEmail = async () => {
+    if (business.email) {
+      return;
+    }
+
+    if (!hasWebsiteEmailScanRequirements(business)) {
+      setGoogleMapsCrmStatus("Need a phone number, address, and website before searching for a contact email.", "neutral");
+      return;
+    }
+
+    const cachedEmail = googleMapsWebsiteEmailCache.get(business.website);
+
+    if (cachedEmail) {
+      applyEmail(cachedEmail.email, cachedEmail.sourceUrl);
+      return;
+    }
+
+    setButtonEnabled(false);
+    setGoogleMapsCrmStatus("Searching website for a contact email...");
+    const result = await sendRuntimeMessage({
+      action: "findEmailOnWebsite",
+      payload: {
+        website: business.website
+      }
+    });
+
+    if (!result?.ok || !result.email) {
+      setGoogleMapsCrmStatus(result?.error ?? "No contact email found on the business website.", "neutral");
+      return;
+    }
+
+    googleMapsWebsiteEmailCache.set(business.website, {
+      email: result.email,
+      sourceUrl: result.sourceUrl
+    });
+    applyEmail(result.email, result.sourceUrl);
+  };
+
+  button?.addEventListener("click", async () => {
+    const latestBusiness = {
+      ...extractGoogleMapsBusiness(),
+      email: business.email || extractGoogleMapsBusiness().email,
+      websiteEmailSourceUrl: business.websiteEmailSourceUrl
+    };
+
+    if (!latestBusiness.email) {
+      setGoogleMapsCrmStatus("No contact email found yet for this business.", "danger");
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = "Adding...";
+    setGoogleMapsCrmStatus(`Checking CRM for ${latestBusiness.email}...`);
+
+    const result = await sendRuntimeMessage({
+      action: "createCustomerFromGoogleMaps",
+      payload: latestBusiness
+    });
+
+    if (!result?.ok) {
+      button.disabled = false;
+      button.textContent = "Add to CRM";
+      setGoogleMapsCrmStatus(result?.error ?? "Unable to add this business to CRM.", "danger");
+      return;
+    }
+
+    if (result.status === "already_exists") {
+      button.textContent = "Already in CRM";
+      setGoogleMapsCrmStatus(`${latestBusiness.email} is already a Singularity CRM customer.`, "success");
+      return;
+    }
+
+    button.textContent = "Added";
+    setGoogleMapsCrmStatus(`${latestBusiness.companyName} was added to Singularity CRM.`, "success");
+  });
+
+  scanWebsiteForEmail().catch((error) => {
+    setGoogleMapsCrmStatus(error.message, "danger");
+  });
+
+  return host;
+}
+
+async function renderGoogleMapsCrmControl() {
+  if (!isGoogleMapsUrl(window.location.href)) {
+    removeGoogleMapsCrmControl();
+    return;
+  }
+
+  await refreshFeatureSettings();
+
+  if (!featureSettings.googleMapsCrmEnabled) {
+    removeGoogleMapsCrmControl();
+    return;
+  }
+
+  const business = extractGoogleMapsBusiness();
+  const businessKey = `${business.companyName}::${business.email}::${business.phone}::${business.address}::${business.website}::${business.sourceUrl}`;
+
+  if (!business.companyName) {
+    removeGoogleMapsCrmControl();
+    return;
+  }
+
+  if (businessKey === lastGoogleMapsBusinessKey && document.getElementById(GOOGLE_MAPS_CRM_HOST_ID)) {
+    return;
+  }
+
+  removeGoogleMapsCrmControl();
+  lastGoogleMapsBusinessKey = businessKey;
+  const target = getGoogleMapsInsertTarget();
+  target.insertAdjacentElement("afterend", createGoogleMapsCrmControl(business));
+}
+
+function scheduleGoogleMapsCrmRender() {
+  if (!isGoogleMapsUrl(window.location.href)) {
+    return;
+  }
+
+  window.clearTimeout(googleMapsRenderTimeoutId);
+  googleMapsRenderTimeoutId = window.setTimeout(() => {
+    renderGoogleMapsCrmControl().catch((error) => {
+      console.error("Google Maps CRM control failed.", error);
+    });
+  }, 600);
+}
+
 function watchUrlChanges() {
   const observer = new MutationObserver(async () => {
     if (window.location.href === currentUrl) {
@@ -1642,13 +1915,17 @@ function watchUrlChanges() {
     if (isTargetUrl(currentUrl)) {
       await bootstrapPanel();
     } else if (isMethodUrl(currentUrl)) {
-      bootstrapMethodMode();
-    } else if (elements?.host) {
-      elements.host.remove();
+      await bootstrapMethodMode();
+    } else if (isGoogleMapsUrl(currentUrl)) {
+      scheduleGoogleMapsCrmRender();
+    } else {
+      elements?.host?.remove();
       elements = null;
       window.clearTimeout(methodScanTimeoutId);
       window.clearTimeout(panelBootstrapRetryTimeoutId);
       window.clearTimeout(panelPresenceCheckTimeoutId);
+      window.clearTimeout(googleMapsRenderTimeoutId);
+      removeGoogleMapsCrmControl();
       resetMethodSyncState();
     }
   });
@@ -1661,10 +1938,11 @@ function watchUrlChanges() {
 
 bootstrapPanel();
 bootstrapMethodMode();
+scheduleGoogleMapsCrmRender();
 watchUrlChanges();
 
 const methodDomObserver = new MutationObserver((mutations) => {
-  if (!isMethodUrl(window.location.href)) {
+  if (!isMethodUrl(window.location.href) || !featureSettings.methodEnabled) {
     return;
   }
 
@@ -1690,6 +1968,19 @@ const methodDomObserver = new MutationObserver((mutations) => {
 });
 
 methodDomObserver.observe(document.body ?? document.documentElement, {
+  childList: true,
+  subtree: true
+});
+
+const googleMapsDomObserver = new MutationObserver(() => {
+  if (!isGoogleMapsUrl(window.location.href)) {
+    return;
+  }
+
+  scheduleGoogleMapsCrmRender();
+});
+
+googleMapsDomObserver.observe(document.body ?? document.documentElement, {
   childList: true,
   subtree: true
 });

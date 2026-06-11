@@ -14,7 +14,10 @@
     "storage",
     "https://factory.katanamrp.com/salesorder/*",
     "https://botanaway.method.me/apps/*",
+    "https://www.google.com/maps/*",
     "https://singularitysalesplatform.com/*",
+    "https://*/*",
+    "http://*/*",
     "https://*/wp-json/*"
   ],
   "background": {
@@ -26,7 +29,8 @@
     {
       "matches": [
         "https://factory.katanamrp.com/salesorder/*",
-        "https://botanaway.method.me/apps/*"
+        "https://botanaway.method.me/apps/*",
+        "https://www.google.com/maps/*"
       ],
       "js": [
         "content.js"

@@ -8,7 +8,6 @@ DIST_DIR="${REPO_ROOT}/dist"
 
 DEFAULT_TARGETS=(
   "Firefox"
-  "Chrome"
 )
 
 usage() {
