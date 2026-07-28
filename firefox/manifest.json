@@ -60,7 +60,15 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "singularity-katana-panel@example.com"
+      "id": "singularity-katana-panel@example.com",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "browsingActivity",
+          "personallyIdentifyingInfo",
+          "websiteContent"
+        ]
+      }
     }
   }
 }
