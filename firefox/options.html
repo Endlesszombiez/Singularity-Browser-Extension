@@ -53,6 +53,27 @@
         <section class="settings-section">
           <div class="section-heading">
             <div>
+              <p class="section-kicker">[katana-api]</p>
+              <h2>Katana API</h2>
+              <p class="copy compact">Required for comparing and overwriting Katana sales order rows and addresses.</p>
+            </div>
+          </div>
+          <form id="katana-api-form">
+            <label>
+              <span>New Katana API key</span>
+              <input type="password" name="apiKey" autocomplete="off" required />
+            </label>
+            <div class="actions">
+              <button type="submit">Verify & Save</button>
+              <button type="button" class="secondary" id="clear-katana-api-key">Clear Katana Key</button>
+            </div>
+          </form>
+          <p class="status" id="katana-api-status">Katana API status is loading.</p>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-heading">
+            <div>
               <p class="section-kicker">[features]</p>
               <h2>Feature Controls</h2>
               <p class="copy compact">Choose which browser-side tools run after matching pages load.</p>

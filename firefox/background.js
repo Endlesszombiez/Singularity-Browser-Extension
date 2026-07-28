@@ -10,7 +10,8 @@ const STORAGE_KEYS = {
   wooCommerceSites: "encryptedWooCommerceSites",
   encryptionKey: "localEncryptionKey",
   onboarding: "verificationState",
-  featureSettings: "featureSettings"
+  featureSettings: "featureSettings",
+  katanaCredentials: "encryptedKatanaCredentials"
 };
 
 const DEFAULT_FEATURE_SETTINGS = {
@@ -165,6 +166,14 @@ async function getWooCommerceSites() {
 
 async function storeWooCommerceSites(sites) {
   await writeEncryptedStorage(STORAGE_KEYS.wooCommerceSites, sites);
+}
+
+async function getKatanaCredentials() {
+  return readEncryptedStorage(STORAGE_KEYS.katanaCredentials);
+}
+
+async function clearKatanaApiKey() {
+  await storageApi.remove(STORAGE_KEYS.katanaCredentials);
 }
 
 async function getFeatureSettings() {
@@ -375,6 +384,53 @@ async function fetchJson(url, options, debugTrace) {
   }
 
   return payload;
+}
+
+async function katanaRequest(path, { apiKey, method = "GET", body } = {}) {
+  const credentials = apiKey ? { apiKey } : await getKatanaCredentials();
+
+  if (!credentials?.apiKey) {
+    throw new Error("Add a Katana API key in the extension settings first.");
+  }
+
+  const response = await fetch(`https://api.katanamrp.com/v1${path}`, {
+    method,
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${credentials.apiKey}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" })
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  const responseText = await response.text();
+  let payload = null;
+
+  if (responseText) {
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      payload = responseText;
+    }
+  }
+
+  if (!response.ok) {
+    const detail = getErrorDetail(payload);
+    throw new Error(`Katana request failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
+
+  return payload;
+}
+
+async function verifyAndStoreKatanaApiKey(apiKey = "") {
+  const normalizedApiKey = String(apiKey ?? "").trim();
+
+  if (!normalizedApiKey) {
+    throw new Error("Katana API key is required.");
+  }
+
+  await katanaRequest("/sales_orders?limit=1", { apiKey: normalizedApiKey });
+  await writeEncryptedStorage(STORAGE_KEYS.katanaCredentials, { apiKey: normalizedApiKey });
+  return { verifiedAt: new Date().toISOString() };
 }
 
 async function postJson(url, body, headers = {}) {
@@ -661,6 +717,271 @@ async function fetchSalesOrderByExternalId(externalId, headers) {
     payload: clonePayload(payload),
     debugTrace
   };
+}
+
+async function fetchCompleteSspSalesOrder(orderNumber = "") {
+  const normalizedOrderNumber = String(orderNumber ?? "").trim();
+
+  if (!normalizedOrderNumber.startsWith("SSP")) {
+    throw new Error("SSP order requests are only available for order numbers beginning with SSP.");
+  }
+
+  const { credentials } = await getStoredCredentials();
+
+  if (!credentials) {
+    return {
+      ok: false,
+      reason: "missing_credentials",
+      error: "Verify Singularity API keys before requesting an SSP order."
+    };
+  }
+
+  assertConfiguredEndpoint(API_CONFIG.salesOrdersUrl, "Sales orders");
+  const headers = buildAuthHeaders(credentials);
+  const resolvedLookup = await fetchSalesOrderByExternalId(normalizedOrderNumber, headers);
+  const resolvedId = resolvedLookup.record?.id;
+
+  if (resolvedLookup.payload?.ok !== true || Number(resolvedLookup.payload?.total) !== 1 || !resolvedId) {
+    throw new Error("Sales order was not found for this organization.");
+  }
+
+  const fullPayload = await fetchJson(
+    buildUrlWithParams(API_CONFIG.salesOrdersUrl, { id: resolvedId, limit: 1 }),
+    { method: "GET", headers }
+  );
+  const order = fullPayload?.items?.[0];
+
+  if (fullPayload?.ok !== true || Number(fullPayload?.total) !== 1 || !order) {
+    throw new Error("Sales order was not found for this organization.");
+  }
+
+  return {
+    ok: true,
+    orderNumber: normalizedOrderNumber,
+    order: clonePayload(order),
+    apiPayload: clonePayload(fullPayload)
+  };
+}
+
+function getKatanaResponseRecord(payload) {
+  if (payload?.data && !Array.isArray(payload.data)) {
+    return payload.data;
+  }
+
+  return payload;
+}
+
+function requireKatanaSalesOrderId(value) {
+  const id = Number(value);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("The Katana sales order ID in the page URL is invalid.");
+  }
+
+  return id;
+}
+
+function parseRequiredNumber(value, label) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    throw new Error(`${label} is missing or invalid.`);
+  }
+
+  return number;
+}
+
+function buildKatanaRowFromSsp(item, salesOrderId, index) {
+  const variantId = item?.katana_id;
+  const quantity = parseRequiredNumber(item?.qty ?? item?.quantity, `Line item ${index + 1} quantity`);
+  const pricePerUnit = parseRequiredNumber(
+    item?.unit_cents ?? item?.price_per_unit,
+    `Line item ${index + 1} price per unit`
+  );
+  const discountPercent = Number(item?.discount_percent ?? 0);
+
+  if (variantId === undefined || variantId === null || variantId === "") {
+    throw new Error(`Line item ${index + 1} does not have an SSP katana_id mapping.`);
+  }
+
+  const normalizedVariantId = parseRequiredNumber(variantId, `Line item ${index + 1} katana_id`);
+
+  if (!Number.isInteger(normalizedVariantId) || normalizedVariantId <= 0) {
+    throw new Error(`Line item ${index + 1} does not have a valid SSP katana_id mapping.`);
+  }
+
+  if (quantity <= 0 || pricePerUnit < 0) {
+    throw new Error(`Line item ${index + 1} quantity and price must be valid positive values.`);
+  }
+
+  return {
+    sales_order_id: salesOrderId,
+    variant_id: normalizedVariantId,
+    quantity,
+    price_per_unit: pricePerUnit,
+    total_discount: Number.isFinite(discountPercent)
+      ? Number((quantity * pricePerUnit * discountPercent / 100).toFixed(10))
+      : 0
+  };
+}
+
+function splitFullName(value = "") {
+  const parts = String(value ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    first_name: parts.shift() || null,
+    last_name: parts.length ? parts.join(" ") : null
+  };
+}
+
+function buildKatanaAddressFromSsp(order, type) {
+  const name = splitFullName(order?.fullname);
+  const prefix = type === "billing" ? "billing" : "shipping";
+  const line1 = order?.[`${prefix}_line1`];
+  const line2 = order?.[`${prefix}_line2`];
+  const line3 = order?.[`${prefix}_line3`];
+  const line4 = order?.[`${prefix}_line4`];
+  const hasExpandedAddressLines = Boolean(line3);
+
+  return {
+    ...name,
+    company: hasExpandedAddressLines ? line1 ?? order?.companyname ?? null : order?.companyname ?? null,
+    line_1: line3 ?? line1 ?? null,
+    line_2: [line2, line4].filter(Boolean).join(", ") || null,
+    city: order?.[`${prefix}_city`] ?? null,
+    state: order?.[`${prefix}_state`] ?? null,
+    zip: order?.[`${prefix}_postal_code`] ?? null,
+    country: order?.[`${prefix}_country`] ?? null
+  };
+}
+
+function normalizeAddressValue(value, field) {
+  let normalized = String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+  if (field === "country") {
+    const countryAliases = {
+      "united states": "us",
+      "united states of america": "us",
+      usa: "us"
+    };
+    normalized = countryAliases[normalized] ?? normalized;
+  }
+
+  if (field === "zip") {
+    return normalized.replace(/[\s-]/g, "");
+  }
+
+  return normalized
+    .replace(/[.,#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeAddressForComparison(address = {}) {
+  // Recipient and company labels do not change the physical delivery destination,
+  // so alerts compare only the address fields that affect where a parcel is sent.
+  const fields = ["line_1", "line_2", "city", "state", "zip", "country"];
+  return fields.map((field) => normalizeAddressValue(address?.[field], field)).join("|");
+}
+
+async function getKatanaOrderContext(salesOrderId) {
+  const id = requireKatanaSalesOrderId(salesOrderId);
+  const [orderPayload, rowPayload, addressPayload] = await Promise.all([
+    katanaRequest(`/sales_orders/${id}`),
+    katanaRequest(`/sales_order_rows?sales_order_ids=${id}&limit=50`),
+    katanaRequest(`/sales_order_addresses?sales_order_ids=${id}&limit=50`)
+  ]);
+
+  return {
+    id,
+    order: getKatanaResponseRecord(orderPayload),
+    rows: normalizeQueryRows(rowPayload),
+    addresses: normalizeQueryRows(addressPayload)
+  };
+}
+
+async function getSspAndKatanaOrder(orderNumber, salesOrderId) {
+  const [sspResult, katana] = await Promise.all([
+    fetchCompleteSspSalesOrder(orderNumber),
+    getKatanaOrderContext(salesOrderId)
+  ]);
+
+  if (!sspResult.ok) {
+    throw new Error(sspResult.error ?? "Unable to load the SSP sales order.");
+  }
+
+  return { ssp: sspResult.order, katana };
+}
+
+async function checkSspKatanaAddressMismatch(orderNumber, salesOrderId) {
+  const { ssp, katana } = await getSspAndKatanaOrder(orderNumber, salesOrderId);
+  const differences = ["shipping", "billing"].filter((type) => {
+    const current = katana.addresses.find((address) => address.entity_type === type);
+    return normalizeAddressForComparison(current) !== normalizeAddressForComparison(buildKatanaAddressFromSsp(ssp, type));
+  });
+
+  return {
+    ok: true,
+    hasMismatch: differences.length > 0,
+    differences
+  };
+}
+
+async function overwriteKatanaLineItems(orderNumber, salesOrderId) {
+  const { ssp, katana } = await getSspAndKatanaOrder(orderNumber, salesOrderId);
+
+  if (!["NOT_SHIPPED", "PENDING"].includes(katana.order?.status)) {
+    throw new Error(`Katana order rows cannot be changed while the order status is ${katana.order?.status ?? "unknown"}.`);
+  }
+
+  const sspItems = Array.isArray(ssp.items) ? ssp.items : [];
+  const desiredRows = sspItems.map((item, index) => buildKatanaRowFromSsp(item, katana.id, index));
+
+  if (!desiredRows.length) {
+    throw new Error("SSP returned no line items; the Katana order was not changed.");
+  }
+
+  const sharedCount = Math.min(katana.rows.length, desiredRows.length);
+
+  for (let index = 0; index < sharedCount; index += 1) {
+    const { sales_order_id, ...body } = desiredRows[index];
+    await katanaRequest(`/sales_order_rows/${katana.rows[index].id}`, { method: "PATCH", body });
+  }
+
+  for (let index = sharedCount; index < desiredRows.length; index += 1) {
+    await katanaRequest("/sales_order_rows", { method: "POST", body: desiredRows[index] });
+  }
+
+  for (let index = sharedCount; index < katana.rows.length; index += 1) {
+    await katanaRequest(`/sales_order_rows/${katana.rows[index].id}`, { method: "DELETE" });
+  }
+
+  return { ok: true, updatedCount: desiredRows.length };
+}
+
+async function overwriteKatanaAddresses(orderNumber, salesOrderId) {
+  const { ssp, katana } = await getSspAndKatanaOrder(orderNumber, salesOrderId);
+  const updated = [];
+
+  for (const type of ["billing", "shipping"]) {
+    const address = buildKatanaAddressFromSsp(ssp, type);
+    const current = katana.addresses.find((entry) => entry.entity_type === type);
+
+    if (current?.id) {
+      await katanaRequest(`/sales_order_addresses/${current.id}`, { method: "PATCH", body: address });
+    } else {
+      await katanaRequest("/sales_order_addresses", {
+        method: "POST",
+        body: { sales_order_id: katana.id, entity_type: type, ...address }
+      });
+    }
+    updated.push(type);
+  }
+
+  return { ok: true, updated };
 }
 
 function buildCustomerLookupParams(customerToken, salesOrder) {
@@ -1288,15 +1609,27 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     switch (action) {
       case "getAuthState": {
-        const [{ credentials, verifiedAt }, wooCommerceSites] = await Promise.all([
+        const [{ credentials, verifiedAt }, wooCommerceSites, katanaCredentials] = await Promise.all([
           getStoredCredentials(),
-          getWooCommerceSites()
+          getWooCommerceSites(),
+          getKatanaCredentials()
         ]);
         sendResponse({
           isVerified: Boolean(credentials),
           verifiedAt,
-          wooCommerceSiteCount: wooCommerceSites.length
+          wooCommerceSiteCount: wooCommerceSites.length,
+          hasKatanaApiKey: Boolean(katanaCredentials?.apiKey)
         });
+        break;
+      }
+      case "verifyAndStoreKatanaApiKey": {
+        const state = await verifyAndStoreKatanaApiKey(message.payload?.apiKey ?? "");
+        sendResponse({ ok: true, verifiedAt: state.verifiedAt });
+        break;
+      }
+      case "clearKatanaApiKey": {
+        await clearKatanaApiKey();
+        sendResponse({ ok: true });
         break;
       }
       case "getFeatureSettings": {
@@ -1331,6 +1664,35 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
           message.payload?.orderNumber ?? ""
         );
         sendResponse(panelData);
+        break;
+      }
+      case "requestSspSalesOrder": {
+        const result = await fetchCompleteSspSalesOrder(message.payload?.orderNumber ?? "");
+        sendResponse(result);
+        break;
+      }
+      case "checkSspKatanaAddressMismatch": {
+        const result = await checkSspKatanaAddressMismatch(
+          message.payload?.orderNumber ?? "",
+          message.payload?.salesOrderId ?? ""
+        );
+        sendResponse(result);
+        break;
+      }
+      case "overwriteKatanaLineItems": {
+        const result = await overwriteKatanaLineItems(
+          message.payload?.orderNumber ?? "",
+          message.payload?.salesOrderId ?? ""
+        );
+        sendResponse(result);
+        break;
+      }
+      case "overwriteKatanaAddresses": {
+        const result = await overwriteKatanaAddresses(
+          message.payload?.orderNumber ?? "",
+          message.payload?.salesOrderId ?? ""
+        );
+        sendResponse(result);
         break;
       }
       case "fetchInventoryBySku": {

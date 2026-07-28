@@ -16,6 +16,10 @@ function setFeaturesStatus(message) {
   document.getElementById("features-status").textContent = message;
 }
 
+function setKatanaApiStatus(message) {
+  document.getElementById("katana-api-status").textContent = message;
+}
+
 function applyFeatureSettingsToForm(featureSettings) {
   const form = document.getElementById("features-form");
   form.elements.methodEnabled.checked = Boolean(featureSettings.methodEnabled);
@@ -100,6 +104,11 @@ async function initializeStatus() {
       ? `${authState.wooCommerceSiteCount} WooCommerce site(s) ready for manual lookup.`
       : "No WooCommerce sites saved yet."
   );
+  setKatanaApiStatus(
+    authState.hasKatanaApiKey
+      ? "A verified Katana API key is stored."
+      : "No Katana API key is stored."
+  );
   if (featureResult?.ok) {
     applyFeatureSettingsToForm(featureResult.featureSettings);
     setFeaturesStatus("Feature settings loaded.");
@@ -142,6 +151,31 @@ document.getElementById("settings-form").addEventListener("submit", async (event
 document.getElementById("clear-credentials").addEventListener("click", async () => {
   await sendRuntimeMessage({ action: "clearCredentials" });
   setStatus("Stored credentials cleared. The panel will require verification again.");
+});
+
+document.getElementById("katana-api-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const apiKey = String(new FormData(form).get("apiKey") ?? "").trim();
+  setKatanaApiStatus("Verifying Katana API key...");
+
+  const result = await sendRuntimeMessage({
+    action: "verifyAndStoreKatanaApiKey",
+    payload: { apiKey }
+  });
+
+  if (!result?.ok) {
+    setKatanaApiStatus(result?.error ?? "Unable to verify the Katana API key.");
+    return;
+  }
+
+  form.reset();
+  setKatanaApiStatus(`Katana API key verified and saved on ${new Date(result.verifiedAt).toLocaleString()}.`);
+});
+
+document.getElementById("clear-katana-api-key").addEventListener("click", async () => {
+  const result = await sendRuntimeMessage({ action: "clearKatanaApiKey" });
+  setKatanaApiStatus(result?.ok ? "Stored Katana API key cleared." : result?.error ?? "Unable to clear Katana API key.");
 });
 
 document.getElementById("features-form").addEventListener("submit", async (event) => {

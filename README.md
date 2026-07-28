@@ -11,6 +11,8 @@ Firefox extension that connects Singularity CRM data to Katana, Method, WooComme
 - Encrypts the stored key pair before saving it in extension storage
 - Lets users rotate or clear the stored keys from the extension settings page without revealing the existing values
 - Lets users configure WooCommerce sites for manual order lookups
+- Lets users store a Katana API key for SSP-to-Katana line-item and address updates
+- Warns when an SSP order's shipping address differs from the live Katana order
 
 ## Quick start
 
@@ -18,7 +20,8 @@ Firefox extension that connects Singularity CRM data to Katana, Method, WooComme
 2. Open the extension settings page.
 3. Enter and verify a Singularity public key and secret key.
 4. Use the Feature Controls section to enable or disable Method, Katana, and Google Maps CRM tools.
-5. Visit a supported Katana, Method, or Google Maps page.
+5. Add and verify a Katana API key if you want to update Katana orders from SSP.
+6. Visit a supported Katana, Method, or Google Maps page.
 
 ## Build XPI package
 

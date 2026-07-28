@@ -49,6 +49,9 @@ let panelBootstrapRetryTimeoutId = null;
 let panelPresenceCheckTimeoutId = null;
 let isRemoveCredentialsModalOpen = false;
 let isWooCommerceModalOpen = false;
+let isSspOrderModalOpen = false;
+let focusedOrderNumber = "";
+let isRequestMenuOpen = false;
 let featureSettings = {
   methodEnabled: true,
   katanaEnabled: true,
@@ -395,6 +398,7 @@ function updateKatanaPanelMinimizedState() {
   updateHeaderActionVisibility();
   updateRemoveCredentialsModalState();
   updateWooCommerceModalState();
+  updateSspOrderModalState();
 }
 
 function updateHeaderActionVisibility() {
@@ -432,6 +436,44 @@ function updateWooCommerceModalState() {
   elements.wooCommerceModal.setAttribute("aria-hidden", String(!shouldShowModal));
 }
 
+function updateSspOrderModalState() {
+  if (!elements?.sspOrderModal) {
+    return;
+  }
+
+  const shouldShowModal = isSspOrderModalOpen && !isKatanaPanelMinimized;
+  elements.sspOrderModal.hidden = !shouldShowModal;
+  elements.sspOrderModal.setAttribute("aria-hidden", String(!shouldShowModal));
+}
+
+function updateSspRequestAvailability(orderNumber = focusedOrderNumber) {
+  focusedOrderNumber = extractMeaningfulText(orderNumber);
+
+  if (!elements?.sspRequestButton) {
+    return;
+  }
+
+  elements.sspRequestButton.hidden = !focusedOrderNumber.startsWith("SSP");
+  if (elements.sspRequestButton.hidden) {
+    isRequestMenuOpen = false;
+  }
+  elements.sspRequestGroup.hidden = elements.sspRequestButton.hidden;
+  elements.sspRequestMenu.hidden = !isRequestMenuOpen || elements.sspRequestButton.hidden;
+  elements.sspRequestButton.title = focusedOrderNumber
+    ? `Request complete SSP data for ${focusedOrderNumber}`
+    : "Request complete SSP order data";
+}
+
+function setRequestMenuOpen(isOpen) {
+  isRequestMenuOpen = Boolean(isOpen);
+
+  if (elements?.sspRequestMenu) {
+    elements.sspRequestMenu.hidden = !isRequestMenuOpen;
+  }
+
+  elements?.sspRequestMenuButton?.setAttribute("aria-expanded", String(isRequestMenuOpen));
+}
+
 function openRemoveCredentialsModal() {
   isRemoveCredentialsModalOpen = true;
   updateRemoveCredentialsModalState();
@@ -450,6 +492,16 @@ function openWooCommerceModal() {
 function closeWooCommerceModal() {
   isWooCommerceModalOpen = false;
   updateWooCommerceModalState();
+}
+
+function openSspOrderModal() {
+  isSspOrderModalOpen = true;
+  updateSspOrderModalState();
+}
+
+function closeSspOrderModal() {
+  isSspOrderModalOpen = false;
+  updateSspOrderModalState();
 }
 
 function createPanel() {
@@ -482,6 +534,14 @@ function createPanel() {
         </div>
         <div class="skp-header-actions">
           <div class="skp-header-panel-actions" hidden>
+            <div class="skp-split-action" data-ssp-request-group hidden>
+              <button type="button" class="skp-primary skp-request-button" data-action="request-ssp-order">Request</button>
+              <button type="button" class="skp-primary skp-request-menu-button" data-action="toggle-request-menu" aria-label="More SSP actions" aria-expanded="false">▾</button>
+              <div class="skp-request-menu" data-ssp-request-menu hidden>
+                <button type="button" data-action="update-katana-line-items">Update Line Items</button>
+                <button type="button" data-action="update-katana-addresses">Update Address</button>
+              </div>
+            </div>
             <button type="button" class="skp-icon-button" data-action="refresh-data" title="Refresh panel data" aria-label="Refresh panel data">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 12a8 8 0 1 1-2.34-5.66" />
@@ -507,6 +567,10 @@ function createPanel() {
       </header>
       <div class="skp-body">
         <section class="skp-main-pane">
+          <section class="skp-address-alert" id="skp-address-alert" hidden>
+            <strong>Shipping address differs from SSP</strong>
+            <p>Katana may have an outdated delivery address. Review it or use Request ▾ → Update Address.</p>
+          </section>
           <section class="skp-view" data-view="auth">
             <p class="skp-copy">Verify your API keys before the panel loads customer and sales order insights.</p>
             <form class="skp-form" id="skp-auth-form">
@@ -674,6 +738,28 @@ function createPanel() {
           </div>
         </div>
       </div>
+      <div class="skp-modal-backdrop" id="skp-ssp-order-modal" hidden aria-hidden="true">
+        <div class="skp-modal-card skp-ssp-order-modal-card" role="dialog" aria-modal="true" aria-labelledby="skp-ssp-order-modal-title">
+          <div class="skp-modal-heading">
+            <div>
+              <h3 id="skp-ssp-order-modal-title">Complete SSP Order</h3>
+              <p class="skp-copy" id="skp-ssp-order-modal-subtitle">Requesting all available order fields and line items.</p>
+            </div>
+            <button type="button" class="skp-icon-button" data-action="close-ssp-order-modal" title="Close SSP order modal" aria-label="Close SSP order modal">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12" />
+                <path d="M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+          <div class="skp-ssp-order-modal-body" id="skp-ssp-order-content">
+            <p class="skp-meta">Waiting for SSP.</p>
+          </div>
+          <div class="skp-modal-actions">
+            <button type="button" class="skp-ghost" data-action="close-ssp-order-modal">Close</button>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -686,6 +772,11 @@ function createPanel() {
     header: root.querySelector(".skp-header"),
     headerActionGroup: root.querySelector(".skp-header-panel-actions"),
     refreshButton: root.querySelector('[data-action="refresh-data"]'),
+    sspRequestButton: root.querySelector('[data-action="request-ssp-order"]'),
+    sspRequestGroup: root.querySelector("[data-ssp-request-group]"),
+    sspRequestMenuButton: root.querySelector('[data-action="toggle-request-menu"]'),
+    sspRequestMenu: root.querySelector("[data-ssp-request-menu]"),
+    addressAlert: root.querySelector("#skp-address-alert"),
     removeCredentialsButton: root.querySelector('[data-action="open-remove-api-key-modal"]'),
     minimizeButton: root.querySelector('[data-action="toggle-minimize"]'),
     authView: root.querySelector('[data-view="auth"]'),
@@ -731,13 +822,18 @@ function createPanel() {
     wooShippingCompany: root.querySelector("#skp-woo-shipping-company"),
     wooShippingAddress: root.querySelector("#skp-woo-shipping-address"),
     wooShippingLines: root.querySelector("#skp-woo-shipping-lines"),
-    wooItems: root.querySelector("#skp-woo-items")
+    wooItems: root.querySelector("#skp-woo-items"),
+    sspOrderModal: root.querySelector("#skp-ssp-order-modal"),
+    sspOrderModalSubtitle: root.querySelector("#skp-ssp-order-modal-subtitle"),
+    sspOrderContent: root.querySelector("#skp-ssp-order-content")
   };
   updateKatanaDebugLog();
   updateKatanaPanelMinimizedState();
   updateHeaderActionVisibility();
   updateRemoveCredentialsModalState();
   updateWooCommerceModalState();
+  updateSspOrderModalState();
+  updateSspRequestAvailability();
 
   root.addEventListener("click", async (event) => {
     if (event.target === elements.removeCredentialsModal) {
@@ -750,7 +846,17 @@ function createPanel() {
       return;
     }
 
+    if (event.target === elements.sspOrderModal) {
+      closeSspOrderModal();
+      return;
+    }
+
     const action = event.target.closest("[data-action]")?.dataset.action;
+
+    if (action === "toggle-request-menu") {
+      setRequestMenuOpen(!isRequestMenuOpen);
+      return;
+    }
 
     if (action === "toggle-minimize") {
       isKatanaPanelMinimized = !isKatanaPanelMinimized;
@@ -761,6 +867,24 @@ function createPanel() {
     if (action === "refresh-data") {
       pushKatanaDebug("Refresh requested");
       await loadPanelData({ preserveView: true });
+      return;
+    }
+
+    if (action === "request-ssp-order") {
+      setRequestMenuOpen(false);
+      await requestSspOrder();
+      return;
+    }
+
+    if (action === "update-katana-line-items") {
+      setRequestMenuOpen(false);
+      await runKatanaOverwrite("line-items");
+      return;
+    }
+
+    if (action === "update-katana-addresses") {
+      setRequestMenuOpen(false);
+      await runKatanaOverwrite("addresses");
       return;
     }
 
@@ -787,6 +911,7 @@ function createPanel() {
     if (action === "clear-manual-order") {
       manualOrderNumberOverride = "";
       elements.manualOrderForm.reset();
+      updateSspRequestAvailability(getOrderNumberFromPage());
       updateManualOrderStatus("Katana order auto-detection is active.");
       updateWooCommerceLookupStatus("WooCommerce lookup is ready when an order number is available.");
       pushKatanaDebug("Manual order override cleared");
@@ -796,6 +921,11 @@ function createPanel() {
 
     if (action === "close-woocommerce-modal") {
       closeWooCommerceModal();
+      return;
+    }
+
+    if (action === "close-ssp-order-modal") {
+      closeSspOrderModal();
       return;
     }
 
@@ -822,6 +952,10 @@ function createPanel() {
 
       if (isWooCommerceModalOpen) {
         closeWooCommerceModal();
+      }
+
+      if (isSspOrderModalOpen) {
+        closeSspOrderModal();
       }
     }
   });
@@ -853,6 +987,7 @@ function createPanel() {
     }
 
     manualOrderNumberOverride = orderNumber;
+    updateSspRequestAvailability(orderNumber);
     elements.manualOrderInput.value = orderNumber;
     updateManualOrderStatus(`Manual Sales Order search active: ${orderNumber}.`);
     updateWooCommerceLookupStatus(`WooCommerce lookup ready for order ${orderNumber}.`);
@@ -992,6 +1127,7 @@ function renderPanelData(result) {
   elements.orderShipMethod.textContent = String(result.salesOrder.shipMethod);
   elements.refreshStatus.textContent = `Last refreshed ${formatTimestamp(result.meta.refreshedAt)}. Sales order ${result.meta.salesOrderId || "unknown"}.`;
   elements.manualOrderInput.value = manualOrderNumberOverride;
+  updateSspRequestAvailability(manualOrderNumberOverride || focusedOrderNumber);
   updateManualOrderStatus(
     manualOrderNumberOverride
       ? `Manual Sales Order search active: ${manualOrderNumberOverride}.`
@@ -1003,6 +1139,193 @@ function renderPanelData(result) {
       : "WooCommerce lookup is ready when an order number is available."
   );
   pushKatanaDebug("Panel data rendered", elements.refreshStatus.textContent);
+}
+
+function formatSspFieldLabel(value) {
+  return String(value ?? "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatSspFieldValue(value) {
+  if (value === null) {
+    return "null";
+  }
+
+  if (value === undefined) {
+    return "undefined";
+  }
+
+  return typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+}
+
+function createSspFieldList(record = {}, omittedKeys = []) {
+  const list = document.createElement("dl");
+  list.className = "skp-ssp-field-list";
+
+  Object.entries(record)
+    .filter(([key]) => !omittedKeys.includes(key))
+    .forEach(([key, value]) => {
+      const row = document.createElement("div");
+      const label = document.createElement("dt");
+      const fieldValue = document.createElement("dd");
+      label.textContent = formatSspFieldLabel(key);
+      fieldValue.textContent = formatSspFieldValue(value);
+      row.append(label, fieldValue);
+      list.appendChild(row);
+    });
+
+  return list;
+}
+
+function renderSspOrder(order = {}) {
+  elements.sspOrderContent.innerHTML = "";
+
+  const headerSection = document.createElement("section");
+  headerSection.className = "skp-detail-card";
+  const headerTitle = document.createElement("h3");
+  headerTitle.textContent = "Order Header";
+  headerSection.append(headerTitle, createSspFieldList(order, ["items"]));
+  elements.sspOrderContent.appendChild(headerSection);
+
+  const lineItems = Array.isArray(order.items) ? order.items : [];
+  const itemsSection = document.createElement("section");
+  itemsSection.className = "skp-detail-card";
+  const itemsTitle = document.createElement("h3");
+  itemsTitle.textContent = `Line Items (${lineItems.length})`;
+  itemsSection.appendChild(itemsTitle);
+
+  if (!lineItems.length) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "skp-meta";
+    emptyState.textContent = "No line items returned.";
+    itemsSection.appendChild(emptyState);
+  } else {
+    lineItems.forEach((item, index) => {
+      const itemGroup = document.createElement("section");
+      itemGroup.className = "skp-ssp-line-item";
+      const itemTitle = document.createElement("h4");
+      itemTitle.textContent = `Item ${index + 1}${item.sku ? ` · ${item.sku}` : ""}`;
+      itemGroup.append(itemTitle, createSspFieldList(item));
+      itemsSection.appendChild(itemGroup);
+    });
+  }
+
+  elements.sspOrderContent.appendChild(itemsSection);
+}
+
+async function requestSspOrder() {
+  const orderNumber = focusedOrderNumber;
+
+  if (!orderNumber.startsWith("SSP")) {
+    updateSspRequestAvailability(orderNumber);
+    return;
+  }
+
+  elements.sspOrderModalSubtitle.textContent = `Requesting every available field for ${orderNumber}...`;
+  elements.sspOrderContent.innerHTML = '<p class="skp-meta">Resolving the SSP order and loading its line items...</p>';
+  openSspOrderModal();
+  pushKatanaDebug("Complete SSP order request started", orderNumber);
+
+  const result = await sendRuntimeMessage({
+    action: "requestSspSalesOrder",
+    payload: { orderNumber }
+  });
+
+  if (!result?.ok) {
+    elements.sspOrderModalSubtitle.textContent = `Unable to load ${orderNumber}.`;
+    elements.sspOrderContent.textContent = result?.error ?? "The SSP order request failed.";
+    pushKatanaDebug("Complete SSP order request failed", result?.error ?? "Unknown error");
+    return;
+  }
+
+  elements.sspOrderModalSubtitle.textContent = `${orderNumber} · internal ID ${result.order?.id ?? "unknown"}`;
+  renderSspOrder(result.order);
+  pushKatanaDebug("Complete SSP order received", formatDebugPayload("sspOrder", result.apiPayload));
+}
+
+function getKatanaSalesOrderIdFromUrl() {
+  return new URL(window.location.href).pathname.split("/").filter(Boolean).pop() ?? "";
+}
+
+function setAddressMismatchAlert(hasMismatch, differences = []) {
+  if (!elements?.addressAlert) {
+    return;
+  }
+
+  const shippingMismatch = differences.includes("shipping");
+  elements.addressAlert.hidden = !hasMismatch;
+  elements.addressAlert.querySelector("strong").textContent = shippingMismatch
+    ? "Shipping address differs from SSP"
+    : "Billing address differs from SSP";
+  elements.addressAlert.querySelector("p").textContent = shippingMismatch
+    ? "Katana may have an outdated delivery address. Review it or use Request ▾ → Update Address."
+    : "Katana may have outdated billing details. Review them or use Request ▾ → Update Address.";
+}
+
+async function checkAddressMismatch(orderNumber) {
+  setAddressMismatchAlert(false);
+
+  if (!orderNumber.startsWith("SSP")) {
+    return;
+  }
+
+  const result = await sendRuntimeMessage({
+    action: "checkSspKatanaAddressMismatch",
+    payload: {
+      orderNumber,
+      salesOrderId: getKatanaSalesOrderIdFromUrl()
+    }
+  });
+
+  if (!result?.ok) {
+    pushKatanaDebug("Address comparison unavailable", result?.error ?? "Unknown error");
+    return;
+  }
+
+  setAddressMismatchAlert(result.hasMismatch, result.differences);
+  pushKatanaDebug(
+    "Address comparison complete",
+    result.hasMismatch ? `Mismatch: ${result.differences.join(", ")}` : "Addresses match"
+  );
+}
+
+async function runKatanaOverwrite(type) {
+  const isLineItemUpdate = type === "line-items";
+  const label = isLineItemUpdate ? "line items" : "billing and shipping addresses";
+  const confirmed = window.confirm(
+    `Overwrite Katana ${label} with SSP data for ${focusedOrderNumber}?\n\nThis changes the live Katana sales order and cannot be undone automatically.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const action = isLineItemUpdate ? "overwriteKatanaLineItems" : "overwriteKatanaAddresses";
+  elements.refreshStatus.textContent = `Updating Katana ${label}...`;
+  pushKatanaDebug(`Katana ${label} overwrite started`, focusedOrderNumber);
+  const result = await sendRuntimeMessage({
+    action,
+    payload: {
+      orderNumber: focusedOrderNumber,
+      salesOrderId: getKatanaSalesOrderIdFromUrl()
+    }
+  });
+
+  if (!result?.ok) {
+    elements.refreshStatus.textContent = result?.error ?? `Unable to update Katana ${label}.`;
+    pushKatanaDebug(`Katana ${label} overwrite failed`, result?.error ?? "Unknown error");
+    return;
+  }
+
+  elements.refreshStatus.textContent = isLineItemUpdate
+    ? `Updated ${result.updatedCount} Katana line item(s) from SSP.`
+    : "Updated Katana billing and shipping addresses from SSP.";
+  pushKatanaDebug(`Katana ${label} overwrite complete`, elements.refreshStatus.textContent);
+
+  if (!isLineItemUpdate) {
+    await checkAddressMismatch(focusedOrderNumber);
+  }
 }
 
 function updateManualOrderStatus(message) {
@@ -1255,6 +1578,7 @@ async function loadPanelData({ preserveView = false } = {}) {
 
   try {
     const orderNumber = manualOrderNumberOverride || await getOrderNumberWithDelay();
+    updateSspRequestAvailability(orderNumber);
 
     if (manualOrderNumberOverride) {
       elements.manualOrderInput.value = manualOrderNumberOverride;
@@ -1302,6 +1626,7 @@ async function loadPanelData({ preserveView = false } = {}) {
 
     setView("dashboard");
     renderPanelData(result);
+    await checkAddressMismatch(orderNumber);
   } catch (error) {
     pushKatanaDebug("Load failed", error.message);
     if (!manualOrderNumberOverride) {
