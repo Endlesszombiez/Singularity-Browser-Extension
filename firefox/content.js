@@ -1326,6 +1326,8 @@ async function runKatanaOverwrite(type) {
   if (!isLineItemUpdate) {
     await checkAddressMismatch(focusedOrderNumber);
   }
+
+  window.location.reload();
 }
 
 function updateManualOrderStatus(message) {

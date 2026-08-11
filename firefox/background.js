@@ -791,8 +791,8 @@ function parseRequiredNumber(value, label) {
   return number;
 }
 
-function buildKatanaRowFromSsp(item, salesOrderId, index) {
-  const variantId = item?.katana_id;
+function buildKatanaRowFromSsp(item, salesOrderId, index, resolvedVariantId) {
+  const variantId = resolvedVariantId ?? item?.katana_id;
   const quantity = parseRequiredNumber(item?.qty ?? item?.quantity, `Line item ${index + 1} quantity`);
   const pricePerUnit = parseRequiredNumber(
     item?.unit_cents ?? item?.price_per_unit,
@@ -822,6 +822,75 @@ function buildKatanaRowFromSsp(item, salesOrderId, index) {
     total_discount: Number.isFinite(discountPercent)
       ? Number((quantity * pricePerUnit * discountPercent / 100).toFixed(10))
       : 0
+  };
+}
+
+async function resolveKatanaVariantIdForSspItem(item, index) {
+  const directVariantId = item?.katana_id;
+
+  if (directVariantId !== undefined && directVariantId !== null && directVariantId !== "") {
+    return {
+      variantId: directVariantId,
+      source: "ssp"
+    };
+  }
+
+  const sku = String(item?.sku ?? "").trim();
+
+  if (!sku) {
+    throw new Error(
+      `Line item ${index + 1} has no SSP katana_id and no SKU for a Katana fallback lookup.`
+    );
+  }
+
+  const payload = await katanaRequest(`/variants?sku=${encodeURIComponent(sku)}&limit=50`);
+  const normalizedSku = sku.toLowerCase();
+  const matches = normalizeQueryRows(payload).filter(
+    (variant) => String(variant?.sku ?? "").trim().toLowerCase() === normalizedSku
+  );
+
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length
+        ? `Katana returned multiple exact variant matches for SKU "${sku}".`
+        : `SSP did not return katana_id and Katana has no exact variant match for SKU "${sku}".`
+    );
+  }
+
+  return {
+    variantId: matches[0]?.id ?? matches[0]?.variant_id,
+    source: "katana_sku_fallback"
+  };
+}
+
+async function enrichSspOrderWithKatanaIds(order = {}) {
+  const items = Array.isArray(order.items) ? order.items : [];
+  const resolved = await Promise.all(
+    items.map(async (item, index) => {
+      try {
+        return await resolveKatanaVariantIdForSspItem(item, index);
+      } catch (error) {
+        return {
+          variantId: item?.katana_id ?? null,
+          source: "unresolved",
+          error: error instanceof Error ? error.message : "Katana ID resolution failed."
+        };
+      }
+    })
+  );
+
+  return {
+    ...order,
+    items: items.map((item, index) => ({
+      ...item,
+      katana_id: resolved[index].variantId,
+      ...(resolved[index].source === "ssp"
+        ? {}
+        : {
+            katana_id_source: resolved[index].source,
+            ...(resolved[index].error ? { katana_id_error: resolved[index].error } : {})
+          })
+    }))
   };
 }
 
@@ -938,7 +1007,12 @@ async function overwriteKatanaLineItems(orderNumber, salesOrderId) {
   }
 
   const sspItems = Array.isArray(ssp.items) ? ssp.items : [];
-  const desiredRows = sspItems.map((item, index) => buildKatanaRowFromSsp(item, katana.id, index));
+  const resolvedVariantIds = await Promise.all(
+    sspItems.map((item, index) => resolveKatanaVariantIdForSspItem(item, index))
+  );
+  const desiredRows = sspItems.map(
+    (item, index) => buildKatanaRowFromSsp(item, katana.id, index, resolvedVariantIds[index].variantId)
+  );
 
   if (!desiredRows.length) {
     throw new Error("SSP returned no line items; the Katana order was not changed.");
@@ -1668,7 +1742,11 @@ runtimeApi.onMessage.addListener((message, sender, sendResponse) => {
       }
       case "requestSspSalesOrder": {
         const result = await fetchCompleteSspSalesOrder(message.payload?.orderNumber ?? "");
-        sendResponse(result);
+        const order = result.ok ? await enrichSspOrderWithKatanaIds(result.order) : result.order;
+        sendResponse({
+          ...result,
+          order
+        });
         break;
       }
       case "checkSspKatanaAddressMismatch": {

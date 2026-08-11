@@ -12,6 +12,21 @@ function setWooCommerceStatus(message) {
   document.getElementById("woocommerce-status").textContent = message;
 }
 
+function setFeaturesStatus(message) {
+  document.getElementById("features-status").textContent = message;
+}
+
+function setKatanaApiStatus(message) {
+  document.getElementById("katana-api-status").textContent = message;
+}
+
+function applyFeatureSettingsToForm(featureSettings) {
+  const form = document.getElementById("features-form");
+  form.elements.methodEnabled.checked = Boolean(featureSettings.methodEnabled);
+  form.elements.katanaEnabled.checked = Boolean(featureSettings.katanaEnabled);
+  form.elements.googleMapsCrmEnabled.checked = Boolean(featureSettings.googleMapsCrmEnabled);
+}
+
 function createSiteRow(site) {
   const row = document.createElement("article");
   row.className = "site-row";
@@ -75,7 +90,10 @@ async function refreshWooCommerceSites() {
 }
 
 async function initializeStatus() {
-  const authState = await sendRuntimeMessage({ action: "getAuthState" });
+  const [authState, featureResult] = await Promise.all([
+    sendRuntimeMessage({ action: "getAuthState" }),
+    sendRuntimeMessage({ action: "getFeatureSettings" })
+  ]);
   setStatus(
     authState.isVerified
       ? `Credentials are stored and were last verified on ${new Date(authState.verifiedAt).toLocaleString()}.`
@@ -86,6 +104,17 @@ async function initializeStatus() {
       ? `${authState.wooCommerceSiteCount} WooCommerce site(s) ready for manual lookup.`
       : "No WooCommerce sites saved yet."
   );
+  setKatanaApiStatus(
+    authState.hasKatanaApiKey
+      ? "A verified Katana API key is stored."
+      : "No Katana API key is stored."
+  );
+  if (featureResult?.ok) {
+    applyFeatureSettingsToForm(featureResult.featureSettings);
+    setFeaturesStatus("Feature settings loaded.");
+  } else {
+    setFeaturesStatus(featureResult?.error ?? "Unable to load feature settings.");
+  }
   await refreshWooCommerceSites();
 }
 
@@ -122,6 +151,55 @@ document.getElementById("settings-form").addEventListener("submit", async (event
 document.getElementById("clear-credentials").addEventListener("click", async () => {
   await sendRuntimeMessage({ action: "clearCredentials" });
   setStatus("Stored credentials cleared. The panel will require verification again.");
+});
+
+document.getElementById("katana-api-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const apiKey = String(new FormData(form).get("apiKey") ?? "").trim();
+  setKatanaApiStatus("Verifying Katana API key...");
+
+  const result = await sendRuntimeMessage({
+    action: "verifyAndStoreKatanaApiKey",
+    payload: { apiKey }
+  });
+
+  if (!result?.ok) {
+    setKatanaApiStatus(result?.error ?? "Unable to verify the Katana API key.");
+    return;
+  }
+
+  form.reset();
+  setKatanaApiStatus(`Katana API key verified and saved on ${new Date(result.verifiedAt).toLocaleString()}.`);
+});
+
+document.getElementById("clear-katana-api-key").addEventListener("click", async () => {
+  const result = await sendRuntimeMessage({ action: "clearKatanaApiKey" });
+  setKatanaApiStatus(result?.ok ? "Stored Katana API key cleared." : result?.error ?? "Unable to clear Katana API key.");
+});
+
+document.getElementById("features-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  setFeaturesStatus("Saving feature settings...");
+
+  const result = await sendRuntimeMessage({
+    action: "saveFeatureSettings",
+    payload: {
+      methodEnabled: form.elements.methodEnabled.checked,
+      katanaEnabled: form.elements.katanaEnabled.checked,
+      googleMapsCrmEnabled: form.elements.googleMapsCrmEnabled.checked
+    }
+  });
+
+  if (!result?.ok) {
+    setFeaturesStatus(result?.error ?? "Unable to save feature settings.");
+    return;
+  }
+
+  applyFeatureSettingsToForm(result.featureSettings);
+  setFeaturesStatus("Feature settings saved. Refresh open Method, Katana, or Google Maps tabs to apply changes.");
 });
 
 document.getElementById("woocommerce-form").addEventListener("submit", async (event) => {
