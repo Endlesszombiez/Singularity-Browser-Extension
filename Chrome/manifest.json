@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Singularity Katana Panel",
   "description": "Injects a Singularity data panel into Katana sales order pages after API key verification.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icons": {
     "16": "images/icon-16.png",
     "32": "images/icon-32.png",
@@ -13,7 +13,7 @@
     "storage"
   ],
   "host_permissions": [
-    "https://factory.katanamrp.com/salesorder/*",
+    "https://factory.katanamrp.com/*",
     "https://botanaway.method.me/apps/*",
     "https://www.google.com/maps/*",
     "https://singularitysalesplatform.com/*",
@@ -29,7 +29,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://factory.katanamrp.com/salesorder/*",
+        "https://factory.katanamrp.com/*",
         "https://botanaway.method.me/apps/*",
         "https://www.google.com/maps/*"
       ],

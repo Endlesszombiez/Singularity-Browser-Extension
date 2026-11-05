@@ -27,7 +27,14 @@ let currentUrl = window.location.href;
 let elements = null;
 let lastVerifiedAt = null;
 let katanaDebugEntries = [];
-let isKatanaPanelMinimized = false;
+let isKatanaPanelMinimized = true;
+const PANEL_POSITION_KEY = "katanaPanelLauncherPosition";
+const PANEL_LAUNCHER_SIZE = 56;
+const PANEL_EDGE_GAP = 12;
+let katanaLauncherPosition = null;
+let katanaLauncherPositionChanged = false;
+let katanaLauncherResizeBound = false;
+let katanaPanelAnimation = null;
 let currentPanelView = "auth";
 let manualOrderNumberOverride = "";
 let isManualOrderCollapsed = true;
@@ -375,30 +382,112 @@ function pushKatanaDebug(message, detail = "") {
   updateKatanaDebugLog();
 }
 
-function updateKatanaPanelMinimizedState() {
-  if (!elements?.shell || !elements?.minimizeButton) {
-    return;
-  }
+function clampKatanaLauncherPosition(position) {
+  const maxX = Math.max(0, window.innerWidth - PANEL_LAUNCHER_SIZE - PANEL_EDGE_GAP);
+  const maxY = Math.max(0, window.innerHeight - PANEL_LAUNCHER_SIZE - PANEL_EDGE_GAP);
+  return {
+    x: Math.min(maxX, Math.max(Math.min(PANEL_EDGE_GAP, maxX), position?.x ?? PANEL_EDGE_GAP)),
+    y: Math.min(maxY, Math.max(Math.min(PANEL_EDGE_GAP, maxY), position?.y ?? maxY))
+  };
+}
 
-  elements.shell.classList.toggle("skp-minimized", isKatanaPanelMinimized);
-  elements.minimizeButton.innerHTML = isKatanaPanelMinimized
-    ? `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 5v14" />
-        <path d="M5 12h14" />
-      </svg>
-    `
-    : `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M6 12h12" />
-      </svg>
-    `;
-  elements.minimizeButton.title = isKatanaPanelMinimized ? "Expand panel" : "Minimize panel";
-  elements.minimizeButton.setAttribute("aria-label", isKatanaPanelMinimized ? "Expand panel" : "Minimize panel");
+function positionKatanaLauncher() {
+  if (!elements?.host) return;
+  const position = clampKatanaLauncherPosition(katanaLauncherPosition);
+  elements.host.style.setProperty("--skp-launcher-x", `${position.x}px`);
+  elements.host.style.setProperty("--skp-launcher-y", `${position.y}px`);
+}
+
+async function saveKatanaLauncherPosition() {
+  try {
+    const storage = globalThis.browser?.storage ?? globalThis.chrome?.storage;
+    await storage?.local.set({ [PANEL_POSITION_KEY]: katanaLauncherPosition });
+  } catch (error) {
+    console.warn("Unable to save panel icon position.", error);
+  }
+}
+
+function initializeKatanaLauncher() {
+  const launcher = elements.launcher;
+  let drag = null;
+  let suppressClick = false;
+  positionKatanaLauncher();
+  const storage = globalThis.browser?.storage ?? globalThis.chrome?.storage;
+  storage?.local.get(PANEL_POSITION_KEY).then((saved) => {
+    const position = saved[PANEL_POSITION_KEY];
+    if (!katanaLauncherPositionChanged && Number.isFinite(position?.x) && Number.isFinite(position?.y)) {
+      katanaLauncherPosition = position;
+      positionKatanaLauncher();
+    }
+  }).catch((error) => console.warn("Unable to restore panel icon position.", error));
+
+  if (!katanaLauncherResizeBound) {
+    window.addEventListener("resize", positionKatanaLauncher);
+    katanaLauncherResizeBound = true;
+  }
+  launcher.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    katanaPanelAnimation?.cancel();
+    suppressClick = false;
+    const position = clampKatanaLauncherPosition(katanaLauncherPosition);
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, position, moved: false };
+    launcher.setPointerCapture(event.pointerId);
+  });
+  launcher.addEventListener("pointermove", (event) => {
+    if (!drag || drag.id !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true;
+    katanaLauncherPositionChanged = true;
+    katanaLauncherPosition = clampKatanaLauncherPosition({ x: drag.position.x + dx, y: drag.position.y + dy });
+    launcher.classList.add("skp-dragging");
+    positionKatanaLauncher();
+  });
+  const finishDrag = (event) => {
+    if (!drag || drag.id !== event.pointerId) return;
+    suppressClick = drag.moved;
+    if (drag.moved) void saveKatanaLauncherPosition();
+    drag = null;
+    launcher.classList.remove("skp-dragging");
+    if (launcher.hasPointerCapture(event.pointerId)) launcher.releasePointerCapture(event.pointerId);
+  };
+  launcher.addEventListener("pointerup", finishDrag);
+  launcher.addEventListener("pointercancel", finishDrag);
+  launcher.addEventListener("lostpointercapture", finishDrag);
+  launcher.addEventListener("click", (event) => {
+    if (suppressClick && event.detail !== 0) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    suppressClick = false;
+  });
+}
+
+function updateKatanaPanelMinimizedState({ animate = false } = {}) {
+  if (!elements?.shell || !elements?.minimizeButton) return;
+
+  katanaPanelAnimation?.cancel();
+  const root = elements.host.firstElementChild;
+  const previous = animate ? root.getBoundingClientRect() : null;
+  positionKatanaLauncher();
+  elements.host.classList.toggle("skp-minimized", isKatanaPanelMinimized);
+  elements.shell.hidden = isKatanaPanelMinimized;
+  elements.launcher.hidden = !isKatanaPanelMinimized;
+  elements.launcher.setAttribute("aria-expanded", String(!isKatanaPanelMinimized));
   updateHeaderActionVisibility();
   updateRemoveCredentialsModalState();
   updateWooCommerceModalState();
   updateSspOrderModalState();
+
+  if (previous && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const next = root.getBoundingClientRect();
+    katanaPanelAnimation = root.animate([
+      { transform: `translate(${previous.left - next.left}px, ${previous.top - next.top}px) scale(${previous.width / next.width}, ${previous.height / next.height})`, opacity: 0.65 },
+      { transform: "none", opacity: 1 }
+    ], { duration: 280, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+  }
+  if (animate) (isKatanaPanelMinimized ? elements.launcher : elements.minimizeButton).focus({ preventScroll: true });
 }
 
 function updateHeaderActionVisibility() {
@@ -525,7 +614,12 @@ function createPanel() {
   const logoUrl = runtimeApi.getURL("images/CompanyLogo.png");
   root.id = PANEL_ID;
   root.innerHTML = `
-    <div class="skp-shell">
+    <button type="button" class="skp-launcher" data-action="toggle-minimize"
+      title="Open Sales Order Intelligence · Drag to move" aria-label="Open Sales Order Intelligence (drag to move)"
+      aria-expanded="false" aria-controls="skp-panel-shell">
+      <img src="${logoUrl}" alt="" draggable="false" />
+    </button>
+    <div class="skp-shell" id="skp-panel-shell" hidden>
       <header class="skp-header">
         <div class="skp-header-main">
           <img class="skp-header-logo" src="${logoUrl}" alt="Company logo" />
@@ -769,6 +863,7 @@ function createPanel() {
   elements = {
     host,
     shell: root.querySelector(".skp-shell"),
+    launcher: root.querySelector(".skp-launcher"),
     header: root.querySelector(".skp-header"),
     headerActionGroup: root.querySelector(".skp-header-panel-actions"),
     refreshButton: root.querySelector('[data-action="refresh-data"]'),
@@ -827,6 +922,7 @@ function createPanel() {
     sspOrderModalSubtitle: root.querySelector("#skp-ssp-order-modal-subtitle"),
     sspOrderContent: root.querySelector("#skp-ssp-order-content")
   };
+  initializeKatanaLauncher();
   updateKatanaDebugLog();
   updateKatanaPanelMinimizedState();
   updateHeaderActionVisibility();
@@ -860,7 +956,7 @@ function createPanel() {
 
     if (action === "toggle-minimize") {
       isKatanaPanelMinimized = !isKatanaPanelMinimized;
-      updateKatanaPanelMinimizedState();
+      updateKatanaPanelMinimizedState({ animate: true });
       return;
     }
 
